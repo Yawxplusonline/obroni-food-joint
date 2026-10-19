@@ -1,0 +1,27 @@
+# =============================================================================
+# OpenFood Delivery Platform — Render.com Free-Tier Deployment Blueprint
+# =============================================================================
+# Deploys `apps/backend` as a free-tier Node.js web service on Render.
+# Connect your GitHub repository at https://dashboard.render.com/blueprints
+# =============================================================================
+
+services:
+  - type: web
+    name: openfood-backend
+    runtime: node
+    plan: free
+    rootDir: apps/backend
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3001
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
