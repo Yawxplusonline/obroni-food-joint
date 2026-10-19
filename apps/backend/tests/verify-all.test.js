@@ -92,11 +92,14 @@ test('OpenFood Backend API & Spatial Suite', async (t) => {
       ['POST', '/api/orders/123/accept'],
       ['POST', '/api/orders/123/pay'],
       ['PATCH', '/api/orders/123/confirm-payment'],
+      ['GET', '/api/riders'],
+      ['POST', '/api/riders'],
       ['GET', '/api/riders/nearby?lat=5.6037&lng=-0.1870'],
       ['PATCH', '/api/riders/123/location'],
       ['PATCH', '/api/riders/123/status'],
       ['GET', '/api/restaurants'],
       ['GET', '/api/restaurants/123/menu'],
+      ['POST', '/api/restaurants/123/menu'],
       ['PATCH', '/api/restaurants/123/menu/456'],
     ];
 

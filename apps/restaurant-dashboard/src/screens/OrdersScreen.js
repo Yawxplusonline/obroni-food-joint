@@ -23,6 +23,7 @@ import {
   SafeAreaView,
   Vibration,
   Platform,
+  TextInput,
 } from 'react-native';
 import { supabase } from '../lib/supabase';
 
@@ -211,10 +212,21 @@ function MenuItemRow({ item, onToggle }) {
 export default function OrdersScreen() {
   const [orders, setOrders] = useState([]);
   const [menuItems, setMenuItems] = useState([]);
+  const [riders, setRiders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState('ACTIVE');
   const [newOrderBanner, setNewOrderBanner] = useState(null);
+
+  // Add New Stock Form State
+  const [newStockName, setNewStockName] = useState('');
+  const [newStockPrice, setNewStockPrice] = useState('');
+  const [newStockDesc, setNewStockDesc] = useState('');
+
+  // Add New Rider Form State
+  const [newRiderName, setNewRiderName] = useState('');
+  const [newRiderPhone, setNewRiderPhone] = useState('');
+
   const channelRef = useRef(null);
 
   const fetchOrders = useCallback(async () => {
@@ -277,10 +289,31 @@ export default function OrdersScreen() {
     }
   }, []);
 
+  const fetchRiders = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('rider_profiles')
+        .select(`
+          id,
+          is_online,
+          is_available,
+          last_location_update,
+          users!inner ( id, full_name, phone, role )
+        `);
+
+      if (!error && data) {
+        setRiders(data);
+      }
+    } catch (err) {
+      console.warn('[OrdersScreen] fetchRiders warning:', err.message);
+    }
+  }, []);
+
   useEffect(() => {
     fetchOrders();
     fetchMenuItems();
-  }, [fetchOrders, fetchMenuItems]);
+    fetchRiders();
+  }, [fetchOrders, fetchMenuItems, fetchRiders]);
 
   useEffect(() => {
     channelRef.current = supabase
@@ -432,6 +465,85 @@ export default function OrdersScreen() {
     }
   }, []);
 
+  // Add New Stock Item to Menu
+  const handleAddStockItem = useCallback(async () => {
+    const trimmedName = newStockName.trim();
+    const numericPrice = parseFloat(newStockPrice);
+    if (!trimmedName || Number.isNaN(numericPrice) || numericPrice <= 0) {
+      Alert.alert('Invalid Input', 'Please enter a valid item name and price (GH₵).');
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('menu_items')
+        .insert({
+          restaurant_id: DEFAULT_RESTAURANT_ID,
+          name: trimmedName,
+          description: newStockDesc.trim() || 'Freshly prepared dish',
+          price: numericPrice,
+          is_available: true,
+        })
+        .select('id, name, description, price, is_available, restaurant_id')
+        .single();
+
+      if (error) throw new Error(error.message);
+
+      setMenuItems((prev) => [...prev, data]);
+      setNewStockName('');
+      setNewStockPrice('');
+      setNewStockDesc('');
+      Alert.alert('Stock Added', `"${data.name}" has been added to the live menu!`);
+    } catch (err) {
+      Alert.alert('Add Stock Error', err.message);
+    }
+  }, [newStockName, newStockPrice, newStockDesc]);
+
+  // Add New Delivery Rider
+  const handleAddRider = useCallback(async () => {
+    const trimmedName = newRiderName.trim();
+    const trimmedPhone = newRiderPhone.trim();
+    if (!trimmedName || !trimmedPhone) {
+      Alert.alert('Invalid Input', 'Please enter the rider full name and phone number.');
+      return;
+    }
+
+    try {
+      const { data: user, error: userErr } = await supabase
+        .from('users')
+        .insert({
+          full_name: trimmedName,
+          phone: trimmedPhone,
+          role: 'RIDER',
+        })
+        .select('id, full_name, phone, role')
+        .single();
+
+      if (userErr) throw new Error(userErr.message);
+
+      const { data: profile, error: profErr } = await supabase
+        .from('rider_profiles')
+        .insert({
+          id: user.id,
+          is_online: true,
+          is_available: true,
+          current_location: 'SRID=4326;POINT(-0.1820 5.5600)',
+          last_location_update: new Date().toISOString(),
+        })
+        .select('id, is_online, is_available, last_location_update')
+        .single();
+
+      if (profErr) throw new Error(profErr.message);
+
+      setRiders((prev) => [...prev, { ...profile, users: user }]);
+      setNewRiderName('');
+      setNewRiderPhone('');
+      Alert.alert('Rider Registered', `🛵 ${user.full_name} added to active fleet!`);
+    } catch (err) {
+      Alert.alert('Add Rider Error', err.message);
+    }
+  }, [newRiderName, newRiderPhone]);
+
   const activeCount = orders.filter(
     (o) => !['DELIVERED', 'CANCELLED'].includes(o.status)
   ).length;
@@ -471,7 +583,15 @@ export default function OrdersScreen() {
           onPress={() => setFilter('MENU')}
         >
           <Text style={[styles.filterTabText, filter === 'MENU' && styles.filterTabTextActive]}>
-            🍽️ Menu Stock
+            🍽️ Stock (+Add)
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.filterTab, filter === 'RIDERS' && styles.filterTabActive]}
+          onPress={() => setFilter('RIDERS')}
+        >
+          <Text style={[styles.filterTabText, filter === 'RIDERS' && styles.filterTabTextActive]}>
+            🛵 Riders (+Add)
           </Text>
         </TouchableOpacity>
       </View>
@@ -489,9 +609,92 @@ export default function OrdersScreen() {
             <MenuItemRow item={item} onToggle={handleToggleMenuItem} />
           )}
           ListHeaderComponent={
-            <Text style={styles.menuSectionTitle}>
-              Toggle Item Availability (Updates Customer App in Real Time)
-            </Text>
+            <View>
+              <View style={styles.formCard}>
+                <Text style={styles.formTitle}>➕ Add New Stock Item to Menu</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Dish / Stock Name (e.g. Assorted Fried Rice)"
+                  value={newStockName}
+                  onChangeText={setNewStockName}
+                />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Price in GH₵ (e.g. 60.00)"
+                  keyboardType="decimal-pad"
+                  value={newStockPrice}
+                  onChangeText={setNewStockPrice}
+                />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Short Description"
+                  value={newStockDesc}
+                  onChangeText={setNewStockDesc}
+                />
+                <TouchableOpacity style={styles.addBtn} onPress={handleAddStockItem}>
+                  <Text style={styles.addBtnText}>➕ Add Stock to Menu</Text>
+                </TouchableOpacity>
+              </View>
+              <Text style={styles.menuSectionTitle}>
+                Toggle Item Availability (Updates Customer App in Real Time)
+              </Text>
+            </View>
+          }
+          contentContainerStyle={styles.listContent}
+        />
+      ) : filter === 'RIDERS' ? (
+        <FlatList
+          data={riders}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item }) => (
+            <View style={styles.menuRowCard}>
+              <View style={styles.menuRowInfo}>
+                <Text style={styles.menuRowName}>
+                  🛵 {item.users?.full_name || 'Delivery Rider'}
+                </Text>
+                <Text style={styles.menuRowPrice}>📞 {item.users?.phone || 'N/A'}</Text>
+              </View>
+              <View
+                style={[
+                  styles.statusBadge,
+                  { backgroundColor: item.is_online ? '#16A34A' : '#6B7280' },
+                ]}
+              >
+                <Text style={styles.statusBadgeText}>
+                  {item.is_online
+                    ? item.is_available
+                      ? 'ONLINE • READY'
+                      : 'ON DELIVERY'
+                    : 'OFFLINE'}
+                </Text>
+              </View>
+            </View>
+          )}
+          ListHeaderComponent={
+            <View>
+              <View style={styles.formCard}>
+                <Text style={styles.formTitle}>🛵 Register New Delivery Rider</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Rider Full Name (e.g. Yaw Boateng)"
+                  value={newRiderName}
+                  onChangeText={setNewRiderName}
+                />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Phone Number (e.g. +233249998877)"
+                  keyboardType="phone-pad"
+                  value={newRiderPhone}
+                  onChangeText={setNewRiderPhone}
+                />
+                <TouchableOpacity style={styles.addBtn} onPress={handleAddRider}>
+                  <Text style={styles.addBtnText}>🛵 + Add Rider to Fleet</Text>
+                </TouchableOpacity>
+              </View>
+              <Text style={styles.menuSectionTitle}>
+                Active Registered Delivery Riders ({riders.length})
+              </Text>
+            </View>
           }
           contentContainerStyle={styles.listContent}
         />
@@ -834,5 +1037,42 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     color: '#1A1A2E',
+  },
+  formCard: {
+    backgroundColor: '#FFF',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  formTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: '#1A1A2E',
+    marginBottom: 10,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    fontSize: 13,
+    marginBottom: 8,
+    backgroundColor: '#F9FAFB',
+    color: '#111827',
+  },
+  addBtn: {
+    backgroundColor: '#EA580C',
+    borderRadius: 8,
+    paddingVertical: 11,
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  addBtnText: {
+    color: '#FFF',
+    fontWeight: '800',
+    fontSize: 13,
   },
 });

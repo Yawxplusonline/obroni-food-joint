@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>OpenFood Delivery Platform — Live Multi-Actor Ecosystem</title>
-  <!-- Leaflet CSS for OpenStreetMap (PRD Section 3) -->
+  <!-- Leaflet CSS & JS (with automatic offline/error-proof SVG Street Map fallback) -->
   <link
     rel="stylesheet"
     href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
@@ -116,13 +116,13 @@
       grid-template-columns: repeat(3, 1fr);
       gap: 16px;
       padding: 16px;
-      max-width: 1680px;
+      max-width: 1720px;
       width: 100%;
       margin: 0 auto;
     }
     main.single-view {
       grid-template-columns: 1fr;
-      max-width: 720px;
+      max-width: 740px;
     }
     @media (max-width: 1100px) {
       main {
@@ -186,8 +186,8 @@
     .subtab {
       flex: 1;
       text-align: center;
-      padding: 10px;
-      font-size: 13px;
+      padding: 10px 6px;
+      font-size: 12px;
       font-weight: 700;
       color: var(--muted);
       cursor: pointer;
@@ -421,12 +421,70 @@
       background: #334155;
     }
 
+    /* Smooth Real-Time Tracking Map Wrapper */
+    .map-wrapper {
+      position: relative;
+      width: 100%;
+      height: 265px;
+      border-radius: 14px;
+      border: 2px solid #cbd5e1;
+      overflow: hidden;
+      background: #e2e8f0;
+      box-shadow: inset 0 2px 6px rgba(0,0,0,0.08);
+    }
     #osm-map {
       width: 100%;
-      height: 210px;
-      border-radius: 12px;
-      border: 1px solid var(--border);
-      z-index: 1;
+      height: 100%;
+      z-index: 2;
+      background: transparent;
+    }
+    /* High-DPI Vector Street Map Layer underneath (guarantees zero blank/error tiles) */
+    #vector-map-canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 3;
+      pointer-events: none;
+    }
+    .map-hud-top {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      right: 10px;
+      z-index: 10;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      pointer-events: none;
+    }
+    .map-pill {
+      background: rgba(15, 23, 42, 0.88);
+      color: #fff;
+      padding: 5px 10px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      backdrop-filter: blur(4px);
+    }
+    .map-hud-bottom {
+      position: absolute;
+      bottom: 8px;
+      left: 10px;
+      right: 10px;
+      z-index: 10;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      pointer-events: none;
+    }
+
+    @keyframes radarPulse {
+      0% { transform: scale(1); opacity: 0.9; }
+      100% { transform: scale(2.4); opacity: 0; }
     }
 
     .progress-bar {
@@ -505,14 +563,14 @@
       <div class="logo-badge">🍽️ OpenFood</div>
       <div>
         <div style="font-weight: 800; font-size: 15px;">Obroni Food Joint — Live Delivery Platform</div>
-        <div class="logo-sub">MoMo PIN USSD Authorization • Restaurant Payment Confirmation • PostGIS & OSM</div>
+        <div class="logo-sub">60FPS Smooth GPS Map • MoMo PIN Authorization • Stock & Fleet Manager</div>
       </div>
     </div>
 
     <div class="view-switcher">
       <button class="view-btn active" onclick="setLayout('ALL', this)">⚡ All 3 Interfaces (Live Split)</button>
       <button class="view-btn" onclick="setLayout('CUSTOMER', this)">📱 Customer App</button>
-      <button class="view-btn" onclick="setLayout('RESTAURANT', this)">🍽️ Restaurant Dashboard</button>
+      <button class="view-btn" onclick="setLayout('RESTAURANT', this)">🍽️ Restaurant & Manager</button>
       <button class="view-btn" onclick="setLayout('RIDER', this)">🛵 Rider App</button>
     </div>
 
@@ -533,7 +591,7 @@
       </div>
       <div class="subtabs">
         <button class="subtab active" id="cust-tab-menu" onclick="switchCustomerTab('MENU')">1. Browse & Order</button>
-        <button class="subtab" id="cust-tab-track" onclick="switchCustomerTab('TRACK')">2. MoMo PIN & Track 📍</button>
+        <button class="subtab" id="cust-tab-track" onclick="switchCustomerTab('TRACK')">2. MoMo PIN & Live Map 📍</button>
       </div>
 
       <!-- Customer Tab 1: Menu & Cart -->
@@ -544,7 +602,7 @@
         </div>
 
         <div>
-          <div style="font-size: 12px; font-weight: 700; color: var(--muted); margin-bottom: 6px;">MENU ITEMS (LIVE AVAILABILITY)</div>
+          <div style="font-size: 12px; font-weight: 700; color: var(--muted); margin-bottom: 6px;">MENU ITEMS (LIVE STOCK UPDATES)</div>
           <div id="customer-menu-list"></div>
         </div>
 
@@ -568,28 +626,50 @@
           </div>
 
           <button class="btn-primary" style="margin-top: 12px;" onclick="placeOrder()">
-            🛒 Place Order → Proceed to Payment
+            🛒 Place Order → Proceed to Payment & Live Map
           </button>
         </div>
       </div>
 
-      <!-- Customer Tab 2: Payment, MoMo PIN Prompt & Live OpenStreetMap Tracking -->
+      <!-- Customer Tab 2: Payment, MoMo PIN Prompt & Smooth Real-Time Map Tracking -->
       <div class="panel-body" id="cust-view-track" style="display: none;">
         <!-- Dynamic Payment / MoMo PIN Prompt / Confirmation Card -->
         <div id="customer-payment-container"></div>
 
-        <!-- OpenStreetMap -->
-        <div id="osm-map"></div>
+        <!-- Bulletproof 60FPS Real-Time Tracking Map -->
+        <div class="map-wrapper">
+          <div class="map-hud-top">
+            <div class="map-pill">
+              <span class="dot-live"></span>
+              <span id="map-live-road">📍 Osu Cantonments Rd, Accra</span>
+            </div>
+            <div class="map-pill" id="map-speed-pill">🛵 0 km/h • PostGIS Live</div>
+          </div>
+
+          <div id="osm-map"></div>
+          <canvas id="vector-map-canvas"></canvas>
+
+          <div class="map-hud-bottom">
+            <div class="map-pill" style="background: rgba(15,23,42,0.78); font-size:10px;" id="map-coords-hud">
+              GPS: 5.6037° N, 0.1870° W
+            </div>
+            <div class="map-pill" style="background: rgba(255,107,53,0.92); font-size:10px;" id="map-rider-badge">
+              Rider: Yaw Boateng
+            </div>
+          </div>
+        </div>
 
         <!-- Live Order Progress Card -->
         <div class="card">
-          <div style="display:flex; justify-content:space-between; align-items:center;">
+          <div style="display:flex; justify-content:space-between; align-items:center; gap: 8px;">
             <div>
               <div style="font-size: 22px;" id="track-emoji">📋</div>
-              <div style="font-size: 16px; font-weight: 800;" id="track-status-label">Order Placed (PENDING)</div>
+              <div style="font-size: 15px; font-weight: 800;" id="track-status-label">Order Placed (PENDING)</div>
               <div style="font-size: 12px; color: var(--muted);" id="track-eta">Waiting for restaurant confirmation…</div>
             </div>
-            <button class="btn-dark" onclick="toggleAutoDrive()" id="sim-drive-btn">▶ Simulate Ride</button>
+            <button class="btn-dark" style="background:#ff6b35;" onclick="toggleAutoDrive()" id="sim-drive-btn">
+              ▶ Smooth Live Track
+            </button>
           </div>
           <div class="progress-bar" id="track-progress"></div>
           <div style="display:flex; justify-content:space-between; font-size: 14px;">
@@ -600,18 +680,20 @@
     </section>
 
     <!-- ================================================================== -->
-    <!-- 2. RESTAURANT DASHBOARD                                            -->
+    <!-- 2. RESTAURANT & MANAGER DASHBOARD                                  -->
     <!-- ================================================================== -->
     <section class="actor-panel" id="panel-restaurant">
       <div class="panel-header header-restaurant">
-        <div class="panel-title">🍽️ Restaurant Dashboard</div>
-        <button class="btn-dark" style="background: rgba(255,255,255,0.15);" onclick="playOrderChime()">🔔 Test Audio Alarm</button>
+        <div class="panel-title">🍽️ Restaurant & Manager</div>
+        <button class="btn-dark" style="background: rgba(255,255,255,0.15);" onclick="playOrderChime()">🔔 Test Alarm</button>
       </div>
       <div class="subtabs">
-        <button class="subtab active" id="rest-tab-orders" onclick="switchRestTab('ORDERS')">Live Orders & Payment Confirm</button>
-        <button class="subtab" id="rest-tab-stock" onclick="switchRestTab('STOCK')">Menu Stock Manager</button>
+        <button class="subtab active" id="rest-tab-orders" onclick="switchRestTab('ORDERS')">📋 Orders & Pay</button>
+        <button class="subtab" id="rest-tab-stock" onclick="switchRestTab('STOCK')">🍲 Stock Manager (+Add)</button>
+        <button class="subtab" id="rest-tab-riders" onclick="switchRestTab('RIDERS')">🛵 Riders Manager (+Add)</button>
       </div>
 
+      <!-- Tab 1: Live Orders & Payment Confirmation -->
       <div class="panel-body" id="rest-view-orders">
         <div class="alarm-banner" id="rest-alarm-banner" onclick="this.style.display='none'">
           <span id="rest-alarm-text">🔔 NEW ORDER RECEIVED!</span>
@@ -620,11 +702,86 @@
         <div id="restaurant-orders-list"></div>
       </div>
 
+      <!-- Tab 2: Menu Stock Manager (Add New Stock + Toggle Availability) -->
       <div class="panel-body" id="rest-view-stock" style="display: none;">
-        <div style="font-size: 12px; color: var(--muted);">
-          Toggle item availability below — updates the Customer App immediately via Realtime:
+        <!-- Add New Stock Form -->
+        <div class="card" style="background: #fff7ed; border: 2px solid #fdba74;">
+          <div style="font-size: 13px; font-weight: 800; color: #9a3412; margin-bottom: 8px;">
+            ➕ Add New Food / Stock Item to Menu
+          </div>
+          <label style="font-size: 11px; font-weight: 700;">Select Restaurant</label>
+          <select id="new-stock-rest" class="input-field">
+            <option value="b1b2c3d4-0001-0001-0001-000000000001">Mama Akua Kitchen (Osu)</option>
+            <option value="b1b2c3d4-0002-0002-0002-000000000002">Chop Bar Deluxe (Labone)</option>
+          </select>
+
+          <div style="display:flex; gap:8px; margin-top:6px;">
+            <div style="flex:2;">
+              <label style="font-size: 11px; font-weight: 700;">Item Name</label>
+              <input id="new-stock-name" class="input-field" placeholder="E.g. Waakye Special" />
+            </div>
+            <div style="flex:1;">
+              <label style="font-size: 11px; font-weight: 700;">Price (GH₵)</label>
+              <input id="new-stock-price" type="number" step="0.5" class="input-field" placeholder="40.00" />
+            </div>
+          </div>
+
+          <label style="font-size: 11px; font-weight: 700; display:block; margin-top:6px;">Description</label>
+          <input id="new-stock-desc" class="input-field" placeholder="E.g. Served with wele, gari, shito, and boiled egg" />
+
+          <button class="btn-primary" style="margin-top: 10px; background: #ea580c;" onclick="addNewStockItem()">
+            ➕ Add Item to Stock (Syncs to Customer App)
+          </button>
+        </div>
+
+        <div style="font-size: 12px; font-weight: 700; color: var(--muted);">
+          CURRENT STOCK INVENTORY (CLICK TO TOGGLE IN STOCK / SOLD OUT)
         </div>
         <div id="restaurant-stock-list"></div>
+      </div>
+
+      <!-- Tab 3: Riders Fleet Manager (Add New Riders + View Fleet) -->
+      <div class="panel-body" id="rest-view-riders" style="display: none;">
+        <div class="card" style="background: #eff6ff; border: 2px solid #93c5fd;">
+          <div style="font-size: 13px; font-weight: 800; color: #1e3a8a; margin-bottom: 8px;">
+            ➕ Register New Delivery Rider to Fleet
+          </div>
+          <div style="display:flex; gap:8px;">
+            <div style="flex:1;">
+              <label style="font-size: 11px; font-weight: 700;">Rider Full Name</label>
+              <input id="new-rider-name" class="input-field" placeholder="E.g. Kofi Mensah" />
+            </div>
+            <div style="flex:1;">
+              <label style="font-size: 11px; font-weight: 700;">Phone Number</label>
+              <input id="new-rider-phone" class="input-field" placeholder="+233 24 555 7890" />
+            </div>
+          </div>
+
+          <div style="display:flex; gap:8px; margin-top:6px;">
+            <div style="flex:1;">
+              <label style="font-size: 11px; font-weight: 700;">Motorbike / Plate #</label>
+              <input id="new-rider-bike" class="input-field" placeholder="GW-4821-26" />
+            </div>
+            <div style="flex:1;">
+              <label style="font-size: 11px; font-weight: 700;">Starting Zone (Accra)</label>
+              <select id="new-rider-zone" class="input-field">
+                <option value="5.6030,-0.1862,Osu Oxford St">Osu Oxford St (200m)</option>
+                <option value="5.5915,-0.1740,Labone Junction">Labone Junction (1.4km)</option>
+                <option value="5.5850,-0.1810,Cantonments">Cantonments (1.9km)</option>
+                <option value="5.6120,-0.1780,Airport Residential">Airport Residential (1.2km)</option>
+              </select>
+            </div>
+          </div>
+
+          <button class="btn-primary" style="margin-top: 10px; background: #1e3a8a;" onclick="addNewRider()">
+            ➕ Add New Rider to Fleet
+          </button>
+        </div>
+
+        <div style="font-size: 12px; font-weight: 700; color: var(--muted);">
+          REGISTERED DELIVERY RIDERS FLEET (<span id="fleet-count-label">1</span>)
+        </div>
+        <div id="manager-riders-list"></div>
       </div>
     </section>
 
@@ -634,9 +791,15 @@
     <section class="actor-panel" id="panel-rider">
       <div class="panel-header header-rider">
         <div class="panel-title">🛵 Delivery Rider App</div>
-        <span class="panel-tag">Yaw Boateng</span>
+        <span class="panel-tag" id="active-rider-header-tag">Yaw Boateng</span>
       </div>
       <div class="panel-body">
+        <!-- Active Rider Switcher (includes newly added riders!) -->
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+          <label style="font-size: 11px; font-weight: 700; color: var(--muted);">ACTIVE RIDER PROFILE:</label>
+          <select id="active-rider-select" class="input-field" style="width:auto; flex:1; margin-top:0; font-weight:700;" onchange="switchActiveRider(this.value)"></select>
+        </div>
+
         <div class="rider-online-bar">
           <div>
             <div style="font-weight: 800; font-size: 14px;" id="rider-status-title">🟢 Rider Online & Available</div>
@@ -649,11 +812,16 @@
 
         <div class="card" style="background: #eff6ff; border-color: #bfdbfe; display:flex; align-items:center; justify-content:space-between;">
           <div style="font-size: 12px; color: #1e40af; font-weight: 600;">
-            📡 Broadcast Background GPS to Customer Map
+            📡 Broadcast Real-Time GPS Along Route
           </div>
-          <button class="btn-dark" style="background: #2563eb;" onclick="stepRiderGps()">
-            Step GPS →
-          </button>
+          <div style="display:flex; gap:6px;">
+            <button class="btn-dark" style="background: #2563eb;" onclick="stepRiderGps()">
+              Step GPS →
+            </button>
+            <button class="btn-dark" style="background: #ff6b35;" onclick="toggleAutoDrive()">
+              Auto-Drive 🛵
+            </button>
+          </div>
         </div>
 
         <div>
@@ -674,6 +842,9 @@
   </main>
 
   <script>
+    // =========================================================================
+    // 1. Data Store: Restaurants, Menu Stock, Fleet Riders, and Orders
+    // =========================================================================
     const RESTAURANTS = [
       {
         id: 'b1b2c3d4-0001-0001-0001-000000000001',
@@ -734,6 +905,53 @@
       },
     ];
 
+    // Fleet Riders (Manager can add new riders dynamically!)
+    let RIDERS = [
+      {
+        id: 'a1b2c3d4-0003-0003-0003-000000000003',
+        name: 'Yaw Boateng',
+        phone: '+233 20 987 6543',
+        bike: 'GW-2094-25',
+        zone: 'Osu Oxford St',
+        is_online: true,
+        is_available: true,
+        lat: 5.6037,
+        lng: -0.1870,
+      },
+      {
+        id: 'a1b2c3d4-0004-0004-0004-000000000004',
+        name: 'Kwesi Appiah',
+        phone: '+233 24 811 2233',
+        bike: 'GW-7712-26',
+        zone: 'Labone Junction',
+        is_online: true,
+        is_available: true,
+        lat: 5.5920,
+        lng: -0.1750,
+      },
+    ];
+
+    let activeRiderId = RIDERS[0].id;
+    function getActiveRider() {
+      return RIDERS.find((r) => r.id === activeRiderId) || RIDERS[0];
+    }
+
+    // Realistic multi-waypoint street route in Accra (Osu -> Ring Rd -> Liberation Rd -> Airport Residential)
+    const ACCRA_ROUTE_WAYPOINTS = [
+      { lat: 5.6037, lng: -0.1870, road: '14 Cantonments Rd, Osu (Pickup)' },
+      { lat: 5.6052, lng: -0.1852, road: 'Oxford Street, Osu' },
+      { lat: 5.6070, lng: -0.1835, road: 'Danquah Circle Roundabout' },
+      { lat: 5.6088, lng: -0.1818, road: 'Ring Road East' },
+      { lat: 5.6108, lng: -0.1798, road: '37 Liberation Road' },
+      { lat: 5.6126, lng: -0.1782, road: 'Airport Bypass Rd' },
+      { lat: 5.6140, lng: -0.1770, road: ' Patrice Lumumba Rd' },
+      { lat: 5.6150, lng: -0.1760, road: '22 Airport Residential Area (Dropoff)' },
+    ];
+
+    let routeProgress = 0; // 0.0 to 1.0 along ACCRA_ROUTE_WAYPOINTS
+    let animFrameId = null;
+    let isSmoothDriving = false;
+
     const PAYMENT_OPTIONS = [
       { key: 'MOMO_MTN',     label: '📱 MTN Mobile Money', defaultAcct: '024 123 4567' },
       { key: 'MOMO_TELECEL', label: '📱 Telecel Cash',     defaultAcct: '020 987 6543' },
@@ -762,20 +980,8 @@
       'c1b2c3d4-0003-0003-0003-000000000003': 2,
     };
 
-    let riderState = {
-      id: 'a1b2c3d4-0003-0003-0003-000000000003',
-      name: 'Yaw Boateng',
-      is_online: true,
-      is_available: true,
-      lat: 5.6020,
-      lng: -0.1855,
-    };
-
     const customerCoords = { lat: 5.6150, lng: -0.1760 };
 
-    // Payment lifecycle states:
-    //   'UNPAID' ->Customer clicks Prompt Payment-> 'AWAITING_MOMO_PIN'
-    //   ->Customer cues in 4-digit MoMo PIN & Restaurant confirms-> 'CONFIRMED'
     let orders = [
       {
         id: 'd1b2c3d4-0001-0001-0001-000000000001',
@@ -783,8 +989,9 @@
         restaurant_name: RESTAURANTS[0].name,
         customer_name: 'Akosua Mensah',
         rider_id: null,
+        rider_name: null,
         status: 'PENDING',
-        payment_status: 'UNPAID', // 'UNPAID' | 'AWAITING_MOMO_PIN' | 'PAID_PENDING_CONFIRMATION' | 'CONFIRMED'
+        payment_status: 'UNPAID',
         restaurant_preconfirmed: false,
         payment_method: null,
         payment_account: null,
@@ -801,14 +1008,16 @@
 
     let activeOrderId = orders[0].id;
     let map = null;
+    let leafletReady = false;
     let riderMarker = null;
     let restMarker = null;
     let custMarker = null;
     let routeLine = null;
-    let autoDriveTimer = null;
+    let traveledLine = null;
 
     function logEvent(msg) {
       const box = document.getElementById('realtime-log');
+      if (!box) return;
       const time = new Date().toLocaleTimeString();
       box.innerHTML = `[${time}] ${msg}<br/>` + box.innerHTML;
     }
@@ -844,53 +1053,379 @@
       return Math.round(R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x)));
     }
 
+    // Interpolate lat/lng + street name from progress (0..1)
+    function getInterpolatedRoutePoint(progress) {
+      const clamped = Math.max(0, Math.min(1, progress));
+      const maxIdx = ACCRA_ROUTE_WAYPOINTS.length - 1;
+      const exactIdx = clamped * maxIdx;
+      const idxA = Math.floor(exactIdx);
+      const idxB = Math.min(maxIdx, idxA + 1);
+      const frac = exactIdx - idxA;
+      const ptA = ACCRA_ROUTE_WAYPOINTS[idxA];
+      const ptB = ACCRA_ROUTE_WAYPOINTS[idxB];
+      return {
+        lat: ptA.lat + (ptB.lat - ptA.lat) * frac,
+        lng: ptA.lng + (ptB.lng - ptA.lng) * frac,
+        road: ptB.road,
+      };
+    }
+
+    // =========================================================================
+    // 2. Dual-Engine Real-Time Map (Leaflet + High-FPS Canvas Street Map)
+    // =========================================================================
+    function drawVectorMapCanvas() {
+      const canvas = document.getElementById('vector-map-canvas');
+      if (!canvas) return;
+      const rect = canvas.parentElement.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) return;
+
+      // If Leaflet tiles loaded and are visible, only use canvas when needed;
+      // Wait: drawing a crisp semi-transparent HUD & fallback vector map when tiles fail
+      // ensures the map NEVER shows grey/broken images!
+      if (leafletReady) {
+        canvas.style.display = 'none';
+        return;
+      }
+      canvas.style.display = 'block';
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = rect.width * dpr;
+      canvas.height = rect.height * dpr;
+      const ctx = canvas.getContext('2d');
+      ctx.scale(dpr, dpr);
+
+      const W = rect.width;
+      const H = rect.height;
+
+      // Map bounds covering Accra Osu -> Airport Residential
+      const minLat = 5.6005, maxLat = 5.6180;
+      const minLng = -0.1905, maxLng = -0.1725;
+      function project(lat, lng) {
+        const x = ((lng - minLng) / (maxLng - minLng)) * W;
+        const y = H - ((lat - minLat) / (maxLat - minLat)) * H;
+        return { x, y };
+      }
+
+      // Warm map background
+      ctx.fillStyle = '#eef2f6';
+      ctx.fillRect(0, 0, W, H);
+
+      // Green parks / neighborhoods
+      ctx.fillStyle = '#dcfce7';
+      ctx.beginPath();
+      ctx.roundRect(W * 0.1, H * 0.15, W * 0.28, H * 0.32, 12);
+      ctx.roundRect(W * 0.62, H * 0.52, W * 0.26, H * 0.34, 12);
+      ctx.fill();
+
+      // Secondary city grid streets
+      ctx.strokeStyle = '#cbd5e1';
+      ctx.lineWidth = 2;
+      for (let i = 1; i < 6; i++) {
+        ctx.beginPath();
+        ctx.moveTo((W / 6) * i, 0);
+        ctx.lineTo((W / 6) * i + 25, H);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(0, (H / 5) * i);
+        ctx.lineTo(W, (H / 5) * i - 15);
+        ctx.stroke();
+      }
+
+      // Major arterial roads
+      const pts = ACCRA_ROUTE_WAYPOINTS.map((wp) => project(wp.lat, wp.lng));
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 10;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      pts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+      ctx.stroke();
+
+      // Dashed remaining route line
+      ctx.strokeStyle = '#ff6b35';
+      ctx.lineWidth = 4;
+      ctx.setLineDash([7, 5]);
+      ctx.beginPath();
+      pts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Neighborhood labels
+      ctx.fillStyle = '#64748b';
+      ctx.font = 'bold 10px sans-serif';
+      ctx.fillText('OSU OXFORD ST', W * 0.12, H * 0.82);
+      ctx.fillText('DANQUAH CIRCLE', W * 0.36, H * 0.62);
+      ctx.fillText('37 LIBERATION RD', W * 0.48, H * 0.42);
+      ctx.fillText('AIRPORT RESIDENTIAL', W * 0.62, H * 0.22);
+
+      // Restaurant Pin
+      const restP = pts[0];
+      ctx.fillStyle = '#ff6b35';
+      ctx.beginPath();
+      ctx.arc(restP.x, restP.y, 13, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.font = '14px sans-serif';
+      ctx.fillText('🍽️', restP.x - 8, restP.y + 5);
+
+      // Customer Pin
+      const custP = pts[pts.length - 1];
+      ctx.fillStyle = '#2563eb';
+      ctx.beginPath();
+      ctx.arc(custP.x, custP.y, 13, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillText('📍', custP.x - 8, custP.y + 5);
+
+      // Live Rider Pin
+      const rider = getActiveRider();
+      const riderP = project(rider.lat, rider.lng);
+      ctx.fillStyle = 'rgba(34, 197, 94, 0.28)';
+      ctx.beginPath();
+      ctx.arc(riderP.x, riderP.y, 22, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#ffffff';
+      ctx.strokeStyle = '#16a34a';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(riderP.x, riderP.y, 15, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.font = '16px sans-serif';
+      ctx.fillText('🛵', riderP.x - 9, riderP.y + 6);
+    }
+
     function initMap() {
-      if (map) return;
-      map = L.map('osm-map').setView([5.609, -0.181], 14);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 19,
-        attribution: '© OpenStreetMap',
-      }).addTo(map);
+      const rider = getActiveRider();
+      if (!map && typeof L !== 'undefined') {
+        try {
+          map = L.map('osm-map', {
+            zoomControl: false,
+            attributionControl: false,
+          }).setView([5.6095, -0.1815], 14);
 
-      const rest = RESTAURANTS.find((r) => r.id === selectedRestaurantId) || RESTAURANTS[0];
+          // Primary high-reliability CartoDB Voyager tiles + OSM fallback
+          const tileLayer = L.tileLayer(
+            'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+            {
+              maxZoom: 19,
+              subdomains: 'abcd',
+            }
+          );
 
-      restMarker = L.marker([rest.lat, rest.lng])
-        .addTo(map)
-        .bindPopup(`<b>🍽️ ${rest.name}</b><br/>Pickup Restaurant`);
+          tileLayer.on('load', () => {
+            leafletReady = true;
+            drawVectorMapCanvas();
+          });
 
-      custMarker = L.marker([customerCoords.lat, customerCoords.lng])
-        .addTo(map)
-        .bindPopup('<b>📍 Customer Destination</b><br/>22 Airport Residential Area');
+          tileLayer.on('tileerror', () => {
+            // If tiles fail or offline, fallback vector street canvas renders automatically
+            leafletReady = false;
+            drawVectorMapCanvas();
+          });
 
-      const scooterIcon = L.divIcon({
-        html: '<div style="font-size:24px; background:#fff; border:2px solid #22c55e; border-radius:50%; width:36px; height:36px; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 6px rgba(0,0,0,0.3);">🛵</div>',
-        className: '',
-        iconSize: [36, 36],
-        iconAnchor: [18, 18],
-      });
+          tileLayer.addTo(map);
 
-      riderMarker = L.marker([riderState.lat, riderState.lng], { icon: scooterIcon })
-        .addTo(map)
-        .bindPopup('<b>🛵 Yaw Boateng</b><br/>Live PostGIS Rider');
+          // Pure HTML/CSS DivIcons (never fails with missing marker-icon.png!)
+          const restIcon = L.divIcon({
+            html: '<div style="background:#ff6b35;color:#fff;border:2px solid #fff;border-radius:50%;width:34px;height:34px;display:flex;align-items:center;justify-content:center;font-size:18px;box-shadow:0 3px 8px rgba(0,0,0,0.28);">🍽️</div>',
+            className: '',
+            iconSize: [34, 34],
+            iconAnchor: [17, 17],
+          });
 
-      routeLine = L.polyline(
-        [
-          [riderState.lat, riderState.lng],
-          [customerCoords.lat, customerCoords.lng],
-        ],
-        { color: '#ff6b35', weight: 4, dashArray: '8, 6' }
-      ).addTo(map);
+          const custIcon = L.divIcon({
+            html: '<div style="background:#2563eb;color:#fff;border:2px solid #fff;border-radius:50%;width:34px;height:34px;display:flex;align-items:center;justify-content:center;font-size:18px;box-shadow:0 3px 8px rgba(0,0,0,0.28);">🏠</div>',
+            className: '',
+            iconSize: [34, 34],
+            iconAnchor: [17, 17],
+          });
+
+          const scooterIcon = L.divIcon({
+            html: `
+              <div style="position:relative;width:40px;height:40px;display:flex;align-items:center;justify-content:center;">
+                <div style="position:absolute;inset:0;border-radius:50%;background:rgba(34,197,94,0.35);animation:radarPulse 1.4s infinite;"></div>
+                <div style="position:relative;background:#fff;border:3px solid #16a34a;border-radius:50%;width:36px;height:36px;display:flex;align-items:center;justify-content:center;font-size:20px;box-shadow:0 3px 10px rgba(0,0,0,0.3);">🛵</div>
+              </div>
+            `,
+            className: '',
+            iconSize: [40, 40],
+            iconAnchor: [20, 20],
+          });
+
+          const rest = RESTAURANTS.find((r) => r.id === selectedRestaurantId) || RESTAURANTS[0];
+          restMarker = L.marker([rest.lat, rest.lng], { icon: restIcon })
+            .addTo(map)
+            .bindPopup(`<b>🍽️ ${rest.name}</b><br/>Pickup Restaurant`);
+
+          custMarker = L.marker([customerCoords.lat, customerCoords.lng], { icon: custIcon })
+            .addTo(map)
+            .bindPopup('<b>🏠 Customer Destination</b><br/>22 Airport Residential Area');
+
+          const fullCoords = ACCRA_ROUTE_WAYPOINTS.map((wp) => [wp.lat, wp.lng]);
+          routeLine = L.polyline(fullCoords, {
+            color: '#ff6b35',
+            weight: 5,
+            opacity: 0.85,
+            dashArray: '8, 6',
+          }).addTo(map);
+
+          traveledLine = L.polyline([[rider.lat, rider.lng]], {
+            color: '#16a34a',
+            weight: 5,
+          }).addTo(map);
+
+          riderMarker = L.marker([rider.lat, rider.lng], { icon: scooterIcon })
+            .addTo(map)
+            .bindPopup(`<b>🛵 ${rider.name}</b><br/>Live PostGIS GPS`);
+
+          map.fitBounds(routeLine.getBounds(), { padding: [28, 28] });
+        } catch (err) {
+          leafletReady = false;
+        }
+      }
+      drawVectorMapCanvas();
     }
 
-    function updateMapMarkers() {
-      if (!map) return;
-      riderMarker.setLatLng([riderState.lat, riderState.lng]);
-      routeLine.setLatLngs([
-        [riderState.lat, riderState.lng],
-        [customerCoords.lat, customerCoords.lng],
-      ]);
+    function updateMapMarkers(roadName = 'Osu Cantonments Rd, Accra', speedKmh = 0) {
+      const rider = getActiveRider();
+      const coordsHud = document.getElementById('map-coords-hud');
+      const roadHud = document.getElementById('map-live-road');
+      const speedHud = document.getElementById('map-speed-pill');
+      const riderBadge = document.getElementById('map-rider-badge');
+
+      if (coordsHud) {
+        coordsHud.textContent = `GPS: ${rider.lat.toFixed(4)}° N, ${Math.abs(rider.lng).toFixed(4)}° W`;
+      }
+      if (roadHud) roadHud.textContent = `📍 ${roadName}`;
+      if (speedHud) speedHud.textContent = `🛵 ${speedKmh} km/h • PostGIS Live`;
+      if (riderBadge) riderBadge.textContent = `Rider: ${rider.name} (${rider.bike})`;
+
+      if (map && riderMarker) {
+        riderMarker.setLatLng([rider.lat, rider.lng]);
+      }
+      drawVectorMapCanvas();
     }
 
+    // =========================================================================
+    // 3. Stock Manager: Add New Stock Item & Toggle Stock
+    // =========================================================================
+    function addNewStockItem() {
+      const restId = document.getElementById('new-stock-rest').value;
+      const nameEl = document.getElementById('new-stock-name');
+      const priceEl = document.getElementById('new-stock-price');
+      const descEl = document.getElementById('new-stock-desc');
+
+      const name = nameEl.value.trim();
+      const price = parseFloat(priceEl.value);
+      const description = descEl.value.trim() || 'Freshly prepared Ghanaian delicacy.';
+
+      if (!name) {
+        alert('Please enter the new stock item name (e.g. Waakye Special).');
+        return;
+      }
+      if (isNaN(price) || price <= 0) {
+        alert('Please enter a valid positive price in GH₵.');
+        return;
+      }
+
+      const newItem = {
+        id: 'item-' + Math.random().toString(36).substring(2, 8),
+        restaurant_id: restId,
+        name,
+        description,
+        price,
+        is_available: true,
+      };
+
+      MENU_ITEMS.unshift(newItem);
+      selectedRestaurantId = restId;
+
+      nameEl.value = '';
+      priceEl.value = '';
+      descEl.value = '';
+
+      playOrderChime();
+      logEvent(
+        `POST /api/restaurants/${restId.slice(0, 6)}/menu -> Added "${name}" @ GH₵ ${price.toFixed(2)} to Stock`
+      );
+      renderAll();
+    }
+
+    function toggleStock(itemId) {
+      const item = MENU_ITEMS.find((m) => m.id === itemId);
+      if (!item) return;
+      item.is_available = !item.is_available;
+      logEvent(
+        `PATCH /api/restaurants/menu/${itemId.slice(0, 6)} -> ${item.name} is_available=${item.is_available}`
+      );
+      renderAll();
+    }
+
+    // =========================================================================
+    // 4. Riders Fleet Manager: Add New Rider & Switch Rider
+    // =========================================================================
+    function addNewRider() {
+      const nameEl = document.getElementById('new-rider-name');
+      const phoneEl = document.getElementById('new-rider-phone');
+      const bikeEl = document.getElementById('new-rider-bike');
+      const zoneVal = document.getElementById('new-rider-zone').value;
+
+      const name = nameEl.value.trim();
+      const phone = phoneEl.value.trim();
+      const bike = bikeEl.value.trim() || 'GW-9001-26';
+
+      if (!name || !phone) {
+        alert('Please enter both the Rider Full Name and Phone Number.');
+        return;
+      }
+
+      const [latStr, lngStr, zoneName] = zoneVal.split(',');
+      const newRider = {
+        id: 'rider-' + Math.random().toString(36).substring(2, 8),
+        name,
+        phone,
+        bike,
+        zone: zoneName || 'Osu, Accra',
+        is_online: true,
+        is_available: true,
+        lat: parseFloat(latStr) || 5.6037,
+        lng: parseFloat(lngStr) || -0.1870,
+      };
+
+      RIDERS.unshift(newRider);
+      activeRiderId = newRider.id;
+
+      nameEl.value = '';
+      phoneEl.value = '';
+      bikeEl.value = '';
+
+      playOrderChime();
+      logEvent(
+        `POST /api/riders -> Registered Rider "${newRider.name}" (${newRider.bike}) at ${newRider.zone}`
+      );
+      updateMapMarkers(newRider.zone, 0);
+      renderAll();
+    }
+
+    function switchActiveRider(riderId) {
+      activeRiderId = riderId;
+      const r = getActiveRider();
+      logEvent(`Switched active Rider App profile to ${r.name} (${r.bike})`);
+      updateMapMarkers(r.zone, 0);
+      renderAll();
+    }
+
+    function toggleFleetRiderOnline(riderId) {
+      const r = RIDERS.find((x) => x.id === riderId);
+      if (!r) return;
+      r.is_online = !r.is_online;
+      logEvent(`PATCH /api/riders/${r.id.slice(0, 6)}/status -> ${r.name} is_online=${r.is_online}`);
+      renderAll();
+    }
+
+    // =========================================================================
+    // 5. MoMo PIN USSD Authorization & Restaurant Confirmation
+    // =========================================================================
     function selectPayMethod(key) {
       selectedPayMethod = key;
       const opt = PAYMENT_OPTIONS.find((p) => p.key === key);
@@ -898,7 +1433,6 @@
       renderAll();
     }
 
-    // Step 1: Customer clicks "Prompt for Payment" -> Opens the USSD MoMo PIN Prompt
     function triggerMomoPinPrompt(orderId) {
       const ord = orders.find((o) => o.id === orderId);
       if (!ord) return;
@@ -917,11 +1451,11 @@
       playOrderChime();
       const banner = document.getElementById('rest-alarm-banner');
       document.getElementById('rest-alarm-text').textContent =
-        `📲 CUSTOMER PROMPTED PAYMENT FOR #${ord.id.slice(0, 6).toUpperCase()} — ENTERING MOMO PIN & READY FOR CONFIRMATION!`;
+        `📲 CUSTOMER PROMPTED PAYMENT FOR #${ord.id.slice(0, 6).toUpperCase()} — ENTERING MOMO PIN!`;
       banner.style.display = 'flex';
 
       logEvent(
-        `USSD Prompt sent to ${acctVal} (${selectedPayMethod}) — Waiting for 4-digit MoMo PIN & Restaurant Confirmation`
+        `USSD Prompt (*170#) opened for ${acctVal} — Waiting for 4-digit MoMo PIN & Restaurant Confirmation`
       );
       renderAll();
     }
@@ -942,7 +1476,6 @@
       renderAll();
     }
 
-    // Step 2: Customer cues in their 4-digit MoMo PIN to authorize final payment transaction
     function authorizeWithMomoPin(orderId) {
       const ord = orders.find((o) => o.id === orderId);
       if (!ord) return;
@@ -955,7 +1488,6 @@
       const ref = `TXN-${prefix}-${Math.floor(100000 + Math.random() * 900000)}`;
       ord.payment_reference = ref;
 
-      // If the restaurant already clicked Confirm Payment, complete immediately!
       if (ord.restaurant_preconfirmed) {
         ord.payment_status = 'CONFIRMED';
         playOrderChime();
@@ -967,10 +1499,10 @@
         playOrderChime();
         const banner = document.getElementById('rest-alarm-banner');
         document.getElementById('rest-alarm-text').textContent =
-          `🔐 MOMO PIN AUTHORIZED BY CUSTOMER (#${ord.id.slice(0, 6).toUpperCase()}) — CLICK "CONFIRM PAYMENT" TO FINALIZE!`;
+          `🔐 MOMO PIN AUTHORIZED BY CUSTOMER (#${ord.id.slice(0, 6).toUpperCase()}) — CLICK "CONFIRM PAYMENT"!`;
         banner.style.display = 'flex';
         logEvent(
-          `POST /api/orders/${ord.id.slice(0, 6)}/pay -> 4-digit MoMo PIN (••••) verified! Ref=${ref}. Awaiting Restaurant Confirmation.`
+          `POST /api/orders/${ord.id.slice(0, 6)}/pay -> 4-digit MoMo PIN verified! Ref=${ref}. Awaiting Restaurant Confirmation.`
         );
       }
       currentMomoPin = '';
@@ -985,29 +1517,40 @@
       renderAll();
     }
 
-    // Restaurant clicks "Confirm Payment"
     function confirmRestaurantPayment(orderId) {
       const ord = orders.find((o) => o.id === orderId);
       if (!ord) return;
 
       if (ord.payment_status === 'AWAITING_MOMO_PIN') {
-        // Restaurant confirmed while customer has the MoMo PIN prompt open
         ord.restaurant_preconfirmed = true;
         playOrderChime();
         logEvent(
-          `Restaurant confirmed payment prompt for #${ord.id.slice(0, 6)} — waiting for customer to cue in 4-digit MoMo PIN`
+          `Restaurant pre-confirmed payment for #${ord.id.slice(0, 6)} — waiting for customer 4-digit MoMo PIN`
         );
       } else {
         ord.payment_status = 'CONFIRMED';
         playOrderChime();
         logEvent(
-          `PATCH /api/orders/${ord.id.slice(0, 6)}/confirm-payment -> payment_status='CONFIRMED' (Final Transaction Verified)`
+          `PATCH /api/orders/${ord.id.slice(0, 6)}/confirm-payment -> payment_status='CONFIRMED'`
         );
       }
       renderAll();
     }
 
+    // =========================================================================
+    // 6. Render UI Across All 3 Actor Interfaces
+    // =========================================================================
     function renderAll() {
+      const activeRider = getActiveRider();
+
+      // Active Rider Header & Selector
+      document.getElementById('active-rider-header-tag').textContent = `${activeRider.name} (${activeRider.bike})`;
+      const riderSelect = document.getElementById('active-rider-select');
+      riderSelect.innerHTML = RIDERS.map(
+        (r) =>
+          `<option value="${r.id}" ${r.id === activeRider.id ? 'selected' : ''}>🛵 ${r.name} (${r.bike}) — ${r.zone}</option>`
+      ).join('');
+
       // 1. Customer Restaurants
       const restContainer = document.getElementById('restaurant-list');
       restContainer.innerHTML = RESTAURANTS.map(
@@ -1063,7 +1606,6 @@
                 <strong style="font-size:14px; color:#9a3412;">💳 Step 1: Select Payment Method (#${tracked.id.slice(0, 6).toUpperCase()})</strong>
                 <strong style="font-size:15px; color:var(--brand);">GH₵ ${tracked.total_amount.toFixed(2)}</strong>
               </div>
-              <div style="font-size:11px; color:#7c2d12; margin-top:2px;">Choose Mobile Money or Bank Card to receive your PIN prompt:</div>
               <div class="pay-methods-grid">
                 ${PAYMENT_OPTIONS.map(
                   (p) => `
@@ -1078,16 +1620,6 @@
                   ? `
                   <label style="font-size:11px; font-weight:700;">Card Number (Visa / Mastercard)</label>
                   <input id="pay-acct-input" class="input-field" value="${payAccountInput}" placeholder="4242 •••• •••• 4242" />
-                  <div style="display:flex; gap:8px; margin-top:6px;">
-                    <div style="flex:1;">
-                      <label style="font-size:11px; font-weight:700;">Expiry</label>
-                      <input class="input-field" value="${cardExpiryInput}" placeholder="MM/YY" />
-                    </div>
-                    <div style="flex:1;">
-                      <label style="font-size:11px; font-weight:700;">CVV</label>
-                      <input class="input-field" type="password" value="${cardCvvInput}" placeholder="123" />
-                    </div>
-                  </div>
                 `
                   : `
                   <label style="font-size:11px; font-weight:700;">Mobile Money Phone Number</label>
@@ -1172,7 +1704,7 @@
                 Transaction Ref: <strong>${tracked.payment_reference}</strong> • Amount: <strong>GH₵ ${tracked.total_amount.toFixed(2)}</strong>
               </div>
               <div style="font-size:11px; color:#78350f; margin-top:6px;">
-                👉 <em>In the Restaurant Dashboard panel, click <strong>"💳 Confirm Payment Received"</strong> to complete!</em>
+                👉 <em>In the Restaurant panel, click <strong>"💳 Confirm Payment Received"</strong> to complete!</em>
               </div>
             </div>
           `;
@@ -1196,11 +1728,11 @@
         const emojis = ['📋', '✅', '👨‍🍳', '📦', '🛵', '🎉'];
         document.getElementById('track-emoji').textContent = emojis[stepIdx] || '📋';
         document.getElementById('track-status-label').textContent = `${tracked.status.replace(/_/g, ' ')} (#${tracked.id.slice(0, 6).toUpperCase()})`;
-        const distM = haversineMeters(riderState, customerCoords);
+        const distM = haversineMeters(activeRider, customerCoords);
         document.getElementById('track-eta').textContent =
           tracked.status === 'DELIVERED'
             ? '🎉 Order Delivered! Enjoy your meal!'
-            : `Rider Distance: ${(distM / 1000).toFixed(2)} km • Est. ~${Math.max(2, Math.round(distM / 450))} mins`;
+            : `Rider (${activeRider.name}): ${(distM / 1000).toFixed(2)} km remaining • Est. ~${Math.max(1, Math.round(distM / 450))} mins`;
         document.getElementById('track-progress').innerHTML = STATUS_STEPS.map(
           (s, idx) => `<div class="progress-seg ${idx <= stepIdx ? 'active' : ''}"></div>`
         ).join('');
@@ -1233,7 +1765,7 @@
                 <div style="font-size:11px; color:#92400e;">
                   <strong>📲 CUSTOMER PROMPTED PAYMENT (ENTERING MOMO PIN…)</strong><br/>
                   ${o.payment_method?.replace('MOMO_', 'MoMo ')} (${o.payment_account})
-                  ${o.restaurant_preconfirmed ? '<br/><strong style="color:#166534;">✓ Pre-confirmed by Restaurant (Waiting for Customer PIN)</strong>' : ''}
+                  ${o.restaurant_preconfirmed ? '<br/><strong style="color:#166534;">✓ Pre-confirmed by Restaurant</strong>' : ''}
                 </div>
                 ${
                   !o.restaurant_preconfirmed
@@ -1276,7 +1808,7 @@
             </div>
             <div style="font-size:11px; color:var(--muted);">📍 ${o.delivery_address}</div>
             ${payStatusHtml}
-            ${o.rider_id ? `<div style="font-size:11px; color:#7e22ce; font-weight:700; margin-bottom:6px;">🛵 Dispatched Rider: Yaw Boateng (within 5km)</div>` : ''}
+            ${o.rider_name ? `<div style="font-size:11px; color:#7e22ce; font-weight:700; margin-bottom:6px;">🛵 Dispatched Rider: ${o.rider_name} (within 5km)</div>` : ''}
             <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px;">
               <strong style="font-size:14px;">Total: GH₵ ${o.total_amount.toFixed(2)}</strong>
               <div style="display:flex; gap:6px;">${nextBtn}</div>
@@ -1288,41 +1820,62 @@
 
       // 4. Restaurant Stock List
       const stockEl = document.getElementById('restaurant-stock-list');
-      stockEl.innerHTML = MENU_ITEMS.map(
-        (m) => `
+      stockEl.innerHTML = MENU_ITEMS.map((m) => {
+        const restName = RESTAURANTS.find((r) => r.id === m.restaurant_id)?.name || 'Restaurant';
+        return `
         <div class="menu-item">
           <div>
             <div class="menu-item-title">${m.name}</div>
-            <div style="font-size:12px; color:var(--muted);">GH₵ ${m.price.toFixed(2)}</div>
+            <div style="font-size:11px; color:var(--muted);">${restName} • <strong>GH₵ ${m.price.toFixed(2)}</strong></div>
           </div>
           <button class="btn-dark" style="background:${m.is_available ? '#16a34a' : '#dc2626'};" onclick="toggleStock('${m.id}')">
             ${m.is_available ? '✓ In Stock' : '✕ Sold Out'}
           </button>
         </div>
-      `
-      ).join('');
+      `;
+      }).join('');
 
-      // 5. Rider App
-      const distToRest = haversineMeters(riderState, RESTAURANTS[0]);
-      document.getElementById('rider-status-title').textContent = riderState.is_online
-        ? riderState.is_available
-          ? '🟢 Online & Available for Dispatch'
-          : '🟠 Online — Active Delivery in Progress'
-        : '⚫ Rider Offline';
-      document.getElementById('rider-coords-label').textContent = `PostGIS: POINT(${riderState.lng.toFixed(4)} ${riderState.lat.toFixed(4)}) • ${distToRest}m to Restaurant`;
+      // 5. Manager Riders Fleet List
+      document.getElementById('fleet-count-label').textContent = RIDERS.length;
+      const fleetEl = document.getElementById('manager-riders-list');
+      fleetEl.innerHTML = RIDERS.map((r) => {
+        const distM = haversineMeters(r, RESTAURANTS[0]);
+        return `
+        <div class="menu-item" style="background:${r.id === activeRider.id ? '#eff6ff' : '#fff'};">
+          <div>
+            <div class="menu-item-title">🛵 ${r.name} <span style="font-size:11px; color:#2563eb;">(${r.bike})</span></div>
+            <div style="font-size:11px; color:var(--muted);">📞 ${r.phone} • 📍 ${r.zone} (${distM}m from Osu)</div>
+          </div>
+          <div style="display:flex; gap:6px;">
+            <button class="btn-dark" style="background:${r.is_online ? '#16a34a' : '#64748b'};" onclick="toggleFleetRiderOnline('${r.id}')">
+              ${r.is_online ? 'Online' : 'Offline'}
+            </button>
+          </div>
+        </div>
+      `;
+      }).join('');
+
+      // 6. Rider App Panel
+      const distToRest = haversineMeters(activeRider, RESTAURANTS[0]);
+      document.getElementById('rider-status-title').textContent = activeRider.is_online
+        ? activeRider.is_available
+          ? `🟢 ${activeRider.name} — Online & Available`
+          : `🟠 ${activeRider.name} — Active Delivery`
+        : `⚫ ${activeRider.name} — Offline`;
+      document.getElementById('rider-coords-label').textContent = `PostGIS: POINT(${activeRider.lng.toFixed(4)} ${activeRider.lat.toFixed(4)}) • ${distToRest}m to Restaurant`;
       const toggleBtn = document.getElementById('rider-toggle-btn');
-      toggleBtn.textContent = riderState.is_online ? 'Online' : 'Offline';
-      toggleBtn.style.background = riderState.is_online ? '#22c55e' : '#64748b';
+      toggleBtn.textContent = activeRider.is_online ? 'Online' : 'Offline';
+      toggleBtn.style.background = activeRider.is_online ? '#22c55e' : '#64748b';
 
       const riderOrders = orders.filter(
         (o) =>
-          (o.rider_id === riderState.id || o.status === 'READY_FOR_PICKUP') &&
+          (o.rider_id === activeRider.id || o.status === 'READY_FOR_PICKUP') &&
           !['DELIVERED', 'CANCELLED'].includes(o.status)
       );
       const riderListEl = document.getElementById('rider-orders-list');
       if (riderOrders.length === 0) {
         riderListEl.innerHTML = `<div class="card" style="text-align:center; color:var(--muted); font-size:13px;">
-          ${riderState.is_online ? '⏳ Waiting for orders to reach READY_FOR_PICKUP…' : '😴 Go online to receive PostGIS dispatch requests.'}
+          ${activeRider.is_online ? '⏳ Waiting for orders to reach READY_FOR_PICKUP…' : '😴 Go online to receive PostGIS dispatch requests.'}
         </div>`;
       } else {
         riderListEl.innerHTML = riderOrders
@@ -1331,7 +1884,7 @@
             if (!o.rider_id) {
               actionBtn = `<button class="btn-primary" style="background:#7e22ce; margin-top:8px;" onclick="riderAccept('${o.id}')">Accept Delivery Request 🛵</button>`;
             } else if (o.status === 'READY_FOR_PICKUP') {
-              actionBtn = `<button class="btn-primary" style="background:#0f172a; margin-top:8px;" onclick="advanceOrder('${o.id}', 'PICKED_UP')">Confirm Picked Up 📦</button>`;
+              actionBtn = `<button class="btn-primary" style="background:#0f172a; margin-top:8px;" onclick="advanceOrder('${o.id}', 'PICKED_UP')">Confirm Picked Up 📦 (Start Live Track)</button>`;
             } else if (o.status === 'PICKED_UP') {
               actionBtn = `<button class="btn-primary" style="background:#16a34a; margin-top:8px;" onclick="advanceOrder('${o.id}', 'DELIVERED')">Mark as Delivered 🎉</button>`;
             }
@@ -1381,6 +1934,7 @@
         restaurant_name: rest.name,
         customer_name: 'Akosua Mensah',
         rider_id: null,
+        rider_name: null,
         status: 'PENDING',
         payment_status: 'UNPAID',
         restaurant_preconfirmed: false,
@@ -1394,13 +1948,14 @@
       };
       orders.unshift(newOrder);
       activeOrderId = newOrder.id;
+      routeProgress = 0;
 
       playOrderChime();
       const banner = document.getElementById('rest-alarm-banner');
       document.getElementById('rest-alarm-text').textContent = `🔔 NEW ORDER #${newOrder.id.toUpperCase()} — GH₵ ${newOrder.total_amount.toFixed(2)} (Awaiting Payment)`;
       banner.style.display = 'flex';
 
-      logEvent(`INSERT INTO orders -> #${newOrder.id.toUpperCase()} (status=PENDING, payment_status=UNPAID)`);
+      logEvent(`INSERT INTO orders -> #${newOrder.id.toUpperCase()} (status=PENDING)`);
       switchCustomerTab('TRACK');
       renderAll();
     }
@@ -1411,14 +1966,22 @@
       ord.status = nextStatus;
       logEvent(`UPDATE orders SET status='${nextStatus}' WHERE id='${orderId.slice(0, 8)}'`);
 
+      // PRD Section 5.3: Auto-dispatch nearest online rider within 5km on READY_FOR_PICKUP
       if (nextStatus === 'READY_FOR_PICKUP' && !ord.rider_id) {
         const rest = RESTAURANTS.find((r) => r.id === ord.restaurant_id) || RESTAURANTS[0];
-        const dist = haversineMeters(riderState, rest);
-        if (riderState.is_online && dist <= 5000) {
-          ord.rider_id = riderState.id;
-          riderState.is_available = false;
+        const candidates = RIDERS.filter((r) => r.is_online && r.is_available)
+          .map((r) => ({ rider: r, dist: haversineMeters(r, rest) }))
+          .filter((c) => c.dist <= 5000)
+          .sort((a, b) => a.dist - b.dist);
+
+        if (candidates.length > 0) {
+          const best = candidates[0].rider;
+          ord.rider_id = best.id;
+          ord.rider_name = `${best.name} (${best.bike})`;
+          best.is_available = false;
+          activeRiderId = best.id;
           logEvent(
-            `PostGIS ST_DWithin(5000m) -> Dispatched Rider ${riderState.name} (${dist}m away)`
+            `PostGIS ST_DWithin(5000m) -> Auto-Dispatched Closest Rider ${best.name} (${candidates[0].dist}m away)`
           );
         }
       }
@@ -1428,12 +1991,10 @@
       }
 
       if (nextStatus === 'DELIVERED' || nextStatus === 'CANCELLED') {
-        riderState.is_available = true;
-        if (autoDriveTimer) {
-          clearInterval(autoDriveTimer);
-          autoDriveTimer = null;
-          document.getElementById('sim-drive-btn').textContent = '▶ Simulate Ride';
-        }
+        RIDERS.forEach((r) => {
+          if (r.id === ord.rider_id) r.is_available = true;
+        });
+        stopSmoothDrive();
       }
 
       renderAll();
@@ -1442,72 +2003,100 @@
     function riderAccept(orderId) {
       const ord = orders.find((o) => o.id === orderId);
       if (!ord) return;
-      ord.rider_id = riderState.id;
-      riderState.is_available = false;
-      logEvent(`Rider ${riderState.name} accepted order #${orderId.slice(0, 8)}`);
-      renderAll();
-    }
-
-    function toggleStock(itemId) {
-      const item = MENU_ITEMS.find((m) => m.id === itemId);
-      if (!item) return;
-      item.is_available = !item.is_available;
-      logEvent(
-        `UPDATE menu_items SET is_available=${item.is_available} (${item.name})`
-      );
+      const r = getActiveRider();
+      ord.rider_id = r.id;
+      ord.rider_name = `${r.name} (${r.bike})`;
+      r.is_available = false;
+      logEvent(`Rider ${r.name} accepted order #${orderId.slice(0, 8)}`);
       renderAll();
     }
 
     function toggleRiderOnline() {
-      riderState.is_online = !riderState.is_online;
-      logEvent(`Rider ${riderState.name} toggled is_online=${riderState.is_online}`);
+      const r = getActiveRider();
+      r.is_online = !r.is_online;
+      logEvent(`Rider ${r.name} toggled is_online=${r.is_online}`);
       renderAll();
     }
 
     function stepRiderGps() {
-      riderState.lat += (customerCoords.lat - riderState.lat) * 0.25;
-      riderState.lng += (customerCoords.lng - riderState.lng) * 0.25;
+      const r = getActiveRider();
+      routeProgress = Math.min(1, routeProgress + 0.16);
+      const pt = getInterpolatedRoutePoint(routeProgress);
+      r.lat = pt.lat;
+      r.lng = pt.lng;
       logEvent(
-        `UPDATE rider_profiles SET current_location=POINT(${riderState.lng.toFixed(4)} ${riderState.lat.toFixed(4)})`
+        `PostGIS Broadcast -> ${r.name}: POINT(${r.lng.toFixed(4)} ${r.lat.toFixed(4)}) on ${pt.road}`
       );
-      updateMapMarkers();
+      updateMapMarkers(pt.road, 36);
       renderAll();
     }
 
-    function toggleAutoDrive() {
+    function stopSmoothDrive() {
+      isSmoothDriving = false;
+      if (animFrameId) {
+        cancelAnimationFrame(animFrameId);
+        animFrameId = null;
+      }
       const btn = document.getElementById('sim-drive-btn');
-      if (autoDriveTimer) {
-        clearInterval(autoDriveTimer);
-        autoDriveTimer = null;
-        btn.textContent = '▶ Simulate Ride';
+      if (btn) btn.textContent = '▶ Smooth Live Track';
+    }
+
+    // 60FPS Smooth Real-Time Tracking Animation along Accra Street Route
+    function toggleAutoDrive() {
+      if (isSmoothDriving) {
+        stopSmoothDrive();
         return;
       }
-      btn.textContent = '⏸ Pause Sim';
-      const ord = orders.find((o) => o.id === activeOrderId) || orders[0];
-      riderState.lat = 5.6037;
-      riderState.lng = -0.1870;
-      updateMapMarkers();
 
-      let tick = 0;
-      autoDriveTimer = setInterval(() => {
-        tick++;
+      switchCustomerTab('TRACK');
+      isSmoothDriving = true;
+      const btn = document.getElementById('sim-drive-btn');
+      if (btn) btn.textContent = '⏸ Pause Live Track';
+
+      const ord = orders.find((o) => o.id === activeOrderId) || orders[0];
+      const r = getActiveRider();
+      if (routeProgress >= 0.98) routeProgress = 0;
+
+      let lastTime = performance.now();
+
+      function animateStep(now) {
+        if (!isSmoothDriving) return;
+        const dt = (now - lastTime) / 1000;
+        lastTime = now;
+
+        // Complete full route smoothly over ~14 seconds at 60 FPS
+        routeProgress = Math.min(1, routeProgress + dt * 0.075);
+        const pt = getInterpolatedRoutePoint(routeProgress);
+        r.lat = pt.lat;
+        r.lng = pt.lng;
+
+        // Automatically advance order lifecycle stages along the journey
         if (ord) {
-          if (tick === 1 && ord.payment_status === 'PAID_PENDING_CONFIRMATION') {
+          if (routeProgress > 0.05 && ord.payment_status === 'PAID_PENDING_CONFIRMATION') {
             confirmRestaurantPayment(ord.id);
           }
-          if (tick === 1 && ord.status === 'PENDING') advanceOrder(ord.id, 'ACCEPTED');
-          if (tick === 2 && ord.status === 'ACCEPTED') advanceOrder(ord.id, 'PREPARING');
-          if (tick === 3 && ord.status === 'PREPARING') advanceOrder(ord.id, 'READY_FOR_PICKUP');
-          if (tick === 4 && ord.status === 'READY_FOR_PICKUP') advanceOrder(ord.id, 'PICKED_UP');
+          if (routeProgress > 0.08 && ord.status === 'PENDING') advanceOrder(ord.id, 'ACCEPTED');
+          if (routeProgress > 0.18 && ord.status === 'ACCEPTED') advanceOrder(ord.id, 'PREPARING');
+          if (routeProgress > 0.28 && ord.status === 'PREPARING') advanceOrder(ord.id, 'READY_FOR_PICKUP');
+          if (routeProgress > 0.36 && ord.status === 'READY_FOR_PICKUP') advanceOrder(ord.id, 'PICKED_UP');
         }
-        stepRiderGps();
-        if (tick >= 10) {
-          if (ord) advanceOrder(ord.id, 'DELIVERED');
-          clearInterval(autoDriveTimer);
-          autoDriveTimer = null;
-          btn.textContent = '▶ Simulate Ride';
+
+        updateMapMarkers(pt.road, 42);
+        renderAll();
+
+        if (routeProgress >= 1) {
+          if (ord && ord.status !== 'DELIVERED') {
+            advanceOrder(ord.id, 'DELIVERED');
+          }
+          updateMapMarkers('22 Airport Residential Area (Arrived)', 0);
+          stopSmoothDrive();
+          return;
         }
-      }, 1400);
+
+        animFrameId = requestAnimationFrame(animateStep);
+      }
+
+      animFrameId = requestAnimationFrame(animateStep);
     }
 
     function switchCustomerTab(tab) {
@@ -1518,17 +2107,20 @@
       if (tab === 'TRACK') {
         setTimeout(() => {
           initMap();
-          map.invalidateSize();
-          updateMapMarkers();
-        }, 100);
+          if (map) map.invalidateSize();
+          const pt = getInterpolatedRoutePoint(routeProgress);
+          updateMapMarkers(pt.road, isSmoothDriving ? 42 : 0);
+        }, 80);
       }
     }
 
     function switchRestTab(tab) {
       document.getElementById('rest-tab-orders').classList.toggle('active', tab === 'ORDERS');
       document.getElementById('rest-tab-stock').classList.toggle('active', tab === 'STOCK');
+      document.getElementById('rest-tab-riders').classList.toggle('active', tab === 'RIDERS');
       document.getElementById('rest-view-orders').style.display = tab === 'ORDERS' ? 'flex' : 'none';
       document.getElementById('rest-view-stock').style.display = tab === 'STOCK' ? 'flex' : 'none';
+      document.getElementById('rest-view-riders').style.display = tab === 'RIDERS' ? 'flex' : 'none';
     }
 
     function setLayout(mode, btnEl) {
@@ -1542,8 +2134,16 @@
         mode === 'ALL' || mode === 'RESTAURANT' ? 'flex' : 'none';
       document.getElementById('panel-rider').style.display =
         mode === 'ALL' || mode === 'RIDER' ? 'flex' : 'none';
-      if (map) setTimeout(() => map.invalidateSize(), 150);
+      setTimeout(() => {
+        if (map) map.invalidateSize();
+        drawVectorMapCanvas();
+      }, 120);
     }
+
+    window.addEventListener('resize', () => {
+      if (map) map.invalidateSize();
+      drawVectorMapCanvas();
+    });
 
     fetch('/health')
       .then((r) => r.json())
@@ -1554,7 +2154,7 @@
       .catch(() => {});
 
     renderAll();
-    logEvent('MoMo PIN USSD Engine + Restaurant Confirmation initialized.');
+    logEvent('60FPS Real-Time Map, Stock Manager (+Add Stock), and Fleet Manager (+Add Rider) ready.');
   </script>
 </body>
 </html>

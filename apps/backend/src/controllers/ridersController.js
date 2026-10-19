@@ -238,4 +238,114 @@ async function updateRiderStatus(req, res, next) {
   }
 }
 
-module.exports = { getNearbyRiders, updateRiderLocation, updateRiderStatus };
+// ---------------------------------------------------------------------------
+// GET /api/riders
+// ---------------------------------------------------------------------------
+/**
+ * listRiders
+ * Lists all registered riders and their profiles for fleet management.
+ */
+async function listRiders(req, res, next) {
+  try {
+    const { data: riders, error } = await supabaseAdmin
+      .from('rider_profiles')
+      .select(`
+        id,
+        is_online,
+        is_available,
+        current_location,
+        last_location_update,
+        users ( id, full_name, phone, role, created_at )
+      `)
+      .order('last_location_update', { ascending: false });
+
+    if (error) {
+      return next(Object.assign(new Error(error.message), { statusCode: 400 }));
+    }
+
+    return res.status(200).json({
+      success: true,
+      count: riders.length,
+      data: riders,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/riders
+// ---------------------------------------------------------------------------
+/**
+ * createRider
+ * Allows a manager to register a new delivery rider into `users` and `rider_profiles`.
+ *
+ * Expected body:
+ * {
+ *   "full_name": "Kofi Mensah",
+ *   "phone": "+233245557890",
+ *   "lat": 5.6037,
+ *   "lng": -0.1870
+ * }
+ */
+async function createRider(req, res, next) {
+  try {
+    const { full_name, phone, lat = 5.6037, lng = -0.187 } = req.body;
+
+    if (!full_name || !phone) {
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: 'full_name and phone are required to register a new rider.',
+      });
+    }
+
+    // 1. Insert user with role = 'RIDER'
+    const { data: newUser, error: userErr } = await supabaseAdmin
+      .from('users')
+      .insert({
+        full_name: String(full_name).trim(),
+        phone: String(phone).trim(),
+        role: 'RIDER',
+      })
+      .select()
+      .single();
+
+    if (userErr) {
+      return next(Object.assign(new Error(userErr.message), { statusCode: 400 }));
+    }
+
+    // 2. Initialize rider_profiles row with PostGIS starting location
+    const { data: newProfile, error: profileErr } = await supabaseAdmin
+      .from('rider_profiles')
+      .insert({
+        id: newUser.id,
+        is_online: true,
+        is_available: true,
+        current_location: `SRID=4326;POINT(${Number(lng)} ${Number(lat)})`,
+        last_location_update: new Date().toISOString(),
+      })
+      .select()
+      .single();
+
+    if (profileErr) {
+      await supabaseAdmin.from('users').delete().eq('id', newUser.id);
+      return next(Object.assign(new Error(profileErr.message), { statusCode: 400 }));
+    }
+
+    return res.status(201).json({
+      success: true,
+      message: 'New rider added to fleet.',
+      data: { ...newProfile, user: newUser },
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = {
+  listRiders,
+  createRider,
+  getNearbyRiders,
+  updateRiderLocation,
+  updateRiderStatus,
+};

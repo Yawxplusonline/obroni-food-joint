@@ -233,4 +233,70 @@ async function updateMenuItemAvailability(req, res, next) {
   }
 }
 
-module.exports = { listRestaurants, getRestaurantMenu, updateMenuItemAvailability };
+// ---------------------------------------------------------------------------
+// POST /api/restaurants/:id/menu
+// ---------------------------------------------------------------------------
+/**
+ * createMenuItem
+ * Allows a restaurant manager/owner to add a new stock/menu item.
+ *
+ * Expected body:
+ * {
+ *   "name": "Waakye Special",
+ *   "description": "Traditional rice and beans with gari, spaghetti, and fish",
+ *   "price": 40.00,
+ *   "is_available": true
+ * }
+ */
+async function createMenuItem(req, res, next) {
+  try {
+    const { id: restaurantId } = req.params;
+    const { name, description = '', price, is_available = true } = req.body;
+
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: 'Menu item name is required.',
+      });
+    }
+
+    const numericPrice = parseFloat(price);
+    if (isNaN(numericPrice) || numericPrice <= 0) {
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: 'A valid positive price is required.',
+      });
+    }
+
+    const { data: newItem, error } = await supabaseAdmin
+      .from('menu_items')
+      .insert({
+        restaurant_id: restaurantId,
+        name: name.trim(),
+        description: String(description).trim(),
+        price: numericPrice.toFixed(2),
+        is_available: Boolean(is_available),
+      })
+      .select()
+      .single();
+
+    if (error) {
+      return next(Object.assign(new Error(error.message), { statusCode: 400 }));
+    }
+
+    return res.status(201).json({
+      success: true,
+      message: 'New stock item added to menu.',
+      data: newItem,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = {
+  listRestaurants,
+  getRestaurantMenu,
+  updateMenuItemAvailability,
+  createMenuItem,
+};

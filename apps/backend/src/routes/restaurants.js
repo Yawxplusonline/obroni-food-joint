@@ -2,7 +2,7 @@
  * OpenFood Backend — Restaurants Router
  *
  * Defines HTTP routes for browsing restaurants, retrieving menus,
- * and managing menu item availability.
+ * adding new menu stock items, and managing menu item availability.
  *
  * Mounted at: /api/restaurants  (see src/routes/index.js)
  */
@@ -13,16 +13,13 @@ const { Router } = require('express');
 const {
   listRestaurants,
   getRestaurantMenu,
+  createMenuItem,
   updateMenuItemAvailability,
 } = require('../controllers/restaurantsController');
 
 const { verifyToken } = require('../middleware/auth');
 
 const router = Router();
-
-// ---------------------------------------------------------------------------
-// Routes
-// ---------------------------------------------------------------------------
 
 /**
  * GET /api/restaurants
@@ -35,6 +32,12 @@ router.get('/', verifyToken, listRestaurants);
  * Returns menu items for the specified restaurant.
  */
 router.get('/:id/menu', verifyToken, getRestaurantMenu);
+
+/**
+ * POST /api/restaurants/:id/menu
+ * Adds a new stock item to the restaurant's menu.
+ */
+router.post('/:id/menu', verifyToken, createMenuItem);
 
 /**
  * PATCH /api/restaurants/:id/menu/:itemId
