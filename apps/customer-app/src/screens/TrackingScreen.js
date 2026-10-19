@@ -49,9 +49,10 @@ export default function TrackingScreen({ route, navigation }) {
   } = route.params || {};
 
   const [orderStatus, setOrderStatus] = useState('PENDING');
-  const [paymentStatus, setPaymentStatus] = useState('UNPAID'); // 'UNPAID' | 'PAID_PENDING_CONFIRMATION' | 'CONFIRMED'
+  const [paymentStatus, setPaymentStatus] = useState('UNPAID'); // 'UNPAID' | 'AWAITING_MOMO_PIN' | 'PAID_PENDING_CONFIRMATION' | 'CONFIRMED'
   const [paymentMethod, setPaymentMethod] = useState('MOMO_MTN');
   const [paymentAccount, setPaymentAccount] = useState('024 123 4567');
+  const [momoPin, setMomoPin] = useState('');
   const [paymentRef, setPaymentRef] = useState(null);
   const [submittingPayment, setSubmittingPayment] = useState(false);
 
@@ -184,14 +185,27 @@ export default function TrackingScreen({ route, navigation }) {
     };
   }, [activeRiderId, restaurantLocation, applyRiderCoordinates]);
 
-  // Submit Mobile Money or Bank Card Payment
-  const handleMakePayment = useCallback(async () => {
+  // Step 1: Prompt for Payment Confirmation (opens MoMo PIN entry)
+  const handlePromptPayment = useCallback(() => {
     if (!paymentAccount.trim()) {
       Alert.alert(
         'Missing Details',
         paymentMethod === 'BANK_CARD'
           ? 'Please enter your bank card number.'
           : 'Please enter your Mobile Money phone number.'
+      );
+      return;
+    }
+    setMomoPin('');
+    setPaymentStatus('AWAITING_MOMO_PIN');
+  }, [paymentAccount, paymentMethod]);
+
+  // Step 2: Customer cues in 4-digit MoMo PIN for final payment transaction
+  const handleMakePayment = useCallback(async () => {
+    if (!/^\d{4}$/.test(momoPin.trim())) {
+      Alert.alert(
+        'MoMo PIN Required',
+        'Please cue in your 4-digit Mobile Money / Card PIN to complete the payment transaction.'
       );
       return;
     }
@@ -215,14 +229,13 @@ export default function TrackingScreen({ route, navigation }) {
       setPaymentRef(generatedRef);
       setPaymentStatus('PAID_PENDING_CONFIRMATION');
     } catch {
-      // Demo fallback if offline
       const generatedRef = `TXN-MOMO-${Math.floor(100000 + Math.random() * 900000)}`;
       setPaymentRef(generatedRef);
       setPaymentStatus('PAID_PENDING_CONFIRMATION');
     } finally {
       setSubmittingPayment(false);
     }
-  }, [orderId, paymentMethod, paymentAccount]);
+  }, [orderId, paymentMethod, paymentAccount, momoPin]);
 
   // Built-in GPS route simulator
   useEffect(() => {
@@ -349,10 +362,10 @@ export default function TrackingScreen({ route, navigation }) {
 
       {/* Bottom Status & Payment Card */}
       <View style={styles.statusCard}>
-        {/* Payment Box (Mobile Money & Bank Card + Live Restaurant Confirmation) */}
+        {/* Step 1: Select Mobile Money / Bank Card & Prompt for Payment */}
         {paymentStatus === 'UNPAID' && (
           <View style={styles.paymentBox}>
-            <Text style={styles.paymentTitle}>💳 Complete Payment for Your Order</Text>
+            <Text style={styles.paymentTitle}>💳 Step 1: Select Payment Method</Text>
             <View style={styles.methodChipsRow}>
               {PAYMENT_METHODS.map((pm) => (
                 <TouchableOpacity
@@ -390,13 +403,36 @@ export default function TrackingScreen({ route, navigation }) {
                     : 'MoMo Number (e.g. 024 123 4567)'
                 }
               />
+              <TouchableOpacity style={styles.payNowBtn} onPress={handlePromptPayment}>
+                <Text style={styles.payNowBtnText}>Prompt PIN →</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
+        {/* Step 2: USSD MoMo PIN Entry Prompt */}
+        {paymentStatus === 'AWAITING_MOMO_PIN' && (
+          <View style={styles.paymentBox}>
+            <Text style={styles.paymentTitle}>
+              📲 Cue In Your 4-Digit {paymentMethod === 'BANK_CARD' ? 'Card' : 'MoMo'} PIN
+            </Text>
+            <View style={styles.payInputRow}>
+              <TextInput
+                style={styles.payInput}
+                value={momoPin}
+                onChangeText={(t) => setMomoPin(t.replace(/\D/g, '').slice(0, 4))}
+                placeholder="Enter 4-digit MoMo PIN (••••)"
+                secureTextEntry
+                keyboardType="numeric"
+                maxLength={4}
+              />
               <TouchableOpacity
                 style={styles.payNowBtn}
                 onPress={handleMakePayment}
                 disabled={submittingPayment}
               >
                 <Text style={styles.payNowBtnText}>
-                  {submittingPayment ? 'Paying…' : 'Pay Now'}
+                  {submittingPayment ? 'Verifying…' : '🔐 Confirm PIN'}
                 </Text>
               </TouchableOpacity>
             </View>

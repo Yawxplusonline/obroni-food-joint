@@ -437,18 +437,19 @@ const VALID_PAYMENT_METHODS = ['MOMO_MTN', 'MOMO_TELECEL', 'MOMO_AT', 'BANK_CARD
 /**
  * submitOrderPayment
  * Allows the customer to pay for a placed order via Mobile Money (MTN, Telecel, AT)
- * or Bank Card (Visa/Mastercard), setting `payment_status = 'PAID_PENDING_CONFIRMATION'`.
+ * or Bank Card (Visa/Mastercard) after cueing in their 4-digit MoMo/Card PIN.
  *
  * Expected body:
  * {
  *   "payment_method": "MOMO_MTN" | "MOMO_TELECEL" | "MOMO_AT" | "BANK_CARD",
- *   "payment_account": "0241234567" or "**** 4242"
+ *   "payment_account": "0241234567" or "**** 4242",
+ *   "momo_pin": "1234"
  * }
  */
 async function submitOrderPayment(req, res, next) {
   try {
     const { id } = req.params;
-    const { payment_method, payment_account } = req.body;
+    const { payment_method, payment_account, momo_pin } = req.body;
     const customerId = req.user.id;
 
     if (!payment_method || !VALID_PAYMENT_METHODS.includes(payment_method)) {
@@ -462,6 +463,13 @@ async function submitOrderPayment(req, res, next) {
       return res.status(400).json({
         error: 'Bad Request',
         message: 'payment_account (MoMo phone number or masked card digits) is required.',
+      });
+    }
+
+    if (!momo_pin || !/^\d{4}$/.test(String(momo_pin).trim())) {
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: 'A valid 4-digit MoMo / Card PIN is required to authorize the final payment transaction.',
       });
     }
 
@@ -505,7 +513,7 @@ async function submitOrderPayment(req, res, next) {
 
     return res.status(200).json({
       success: true,
-      message: 'Payment submitted. Waiting for restaurant confirmation.',
+      message: 'MoMo PIN verified and payment authorized. Waiting for restaurant confirmation.',
       data: updatedOrder,
     });
   } catch (err) {

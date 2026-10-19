@@ -339,7 +339,6 @@
       cursor: pointer;
     }
 
-    /* Payment Method Chips */
     .pay-methods-grid {
       display: grid;
       grid-template-columns: repeat(2, 1fr);
@@ -362,9 +361,69 @@
       color: var(--dark);
     }
 
+    /* USSD / MoMo PIN Prompt Box */
+    .ussd-modal {
+      background: #0f172a;
+      color: #fff;
+      border: 2px solid #eab308;
+      border-radius: 14px;
+      padding: 14px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+    }
+    .ussd-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid #334155;
+      padding-bottom: 8px;
+      margin-bottom: 10px;
+    }
+    .pin-dots {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      margin: 10px 0;
+    }
+    .pin-box {
+      width: 42px;
+      height: 44px;
+      border-radius: 8px;
+      border: 2px solid #475569;
+      background: #1e293b;
+      color: #facc15;
+      font-size: 22px;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .pin-box.filled {
+      border-color: #eab308;
+      background: #334155;
+    }
+    .pin-keypad {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 6px;
+      margin-bottom: 10px;
+    }
+    .pin-key {
+      background: #1e293b;
+      color: #fff;
+      border: 1px solid #334155;
+      border-radius: 8px;
+      padding: 8px 0;
+      font-size: 14px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+    .pin-key:hover {
+      background: #334155;
+    }
+
     #osm-map {
       width: 100%;
-      height: 220px;
+      height: 210px;
       border-radius: 12px;
       border: 1px solid var(--border);
       z-index: 1;
@@ -446,7 +505,7 @@
       <div class="logo-badge">🍽️ OpenFood</div>
       <div>
         <div style="font-weight: 800; font-size: 15px;">Obroni Food Joint — Live Delivery Platform</div>
-        <div class="logo-sub">Mobile Money & Card Payments • Real-Time Restaurant Verification • PostGIS & OSM</div>
+        <div class="logo-sub">MoMo PIN USSD Authorization • Restaurant Payment Confirmation • PostGIS & OSM</div>
       </div>
     </div>
 
@@ -474,7 +533,7 @@
       </div>
       <div class="subtabs">
         <button class="subtab active" id="cust-tab-menu" onclick="switchCustomerTab('MENU')">1. Browse & Order</button>
-        <button class="subtab" id="cust-tab-track" onclick="switchCustomerTab('TRACK')">2. Pay & Track 📍</button>
+        <button class="subtab" id="cust-tab-track" onclick="switchCustomerTab('TRACK')">2. MoMo PIN & Track 📍</button>
       </div>
 
       <!-- Customer Tab 1: Menu & Cart -->
@@ -514,9 +573,9 @@
         </div>
       </div>
 
-      <!-- Customer Tab 2: Payment & Live OpenStreetMap Tracking -->
+      <!-- Customer Tab 2: Payment, MoMo PIN Prompt & Live OpenStreetMap Tracking -->
       <div class="panel-body" id="cust-view-track" style="display: none;">
-        <!-- Dynamic Payment Checkout / Confirmation Card -->
+        <!-- Dynamic Payment / MoMo PIN Prompt / Confirmation Card -->
         <div id="customer-payment-container"></div>
 
         <!-- OpenStreetMap -->
@@ -549,7 +608,7 @@
         <button class="btn-dark" style="background: rgba(255,255,255,0.15);" onclick="playOrderChime()">🔔 Test Audio Alarm</button>
       </div>
       <div class="subtabs">
-        <button class="subtab active" id="rest-tab-orders" onclick="switchRestTab('ORDERS')">Live Orders & Payments</button>
+        <button class="subtab active" id="rest-tab-orders" onclick="switchRestTab('ORDERS')">Live Orders & Payment Confirm</button>
         <button class="subtab" id="rest-tab-stock" onclick="switchRestTab('STOCK')">Menu Stock Manager</button>
       </div>
 
@@ -606,7 +665,7 @@
 
         <div style="margin-top: auto;">
           <div style="font-size: 11px; font-weight: 700; color: var(--muted); margin-bottom: 4px;">
-            REALTIME CDC, PAYMENT & POSTGIS EVENT STREAM
+            REALTIME CDC, MOMO PIN & POSTGIS EVENT STREAM
           </div>
           <div class="event-log" id="realtime-log"></div>
         </div>
@@ -696,6 +755,7 @@
     let payAccountInput = '024 123 4567';
     let cardExpiryInput = '08/28';
     let cardCvvInput = '492';
+    let currentMomoPin = '';
 
     let cart = {
       'c1b2c3d4-0001-0001-0001-000000000001': 1,
@@ -713,6 +773,9 @@
 
     const customerCoords = { lat: 5.6150, lng: -0.1760 };
 
+    // Payment lifecycle states:
+    //   'UNPAID' ->Customer clicks Prompt Payment-> 'AWAITING_MOMO_PIN'
+    //   ->Customer cues in 4-digit MoMo PIN & Restaurant confirms-> 'CONFIRMED'
     let orders = [
       {
         id: 'd1b2c3d4-0001-0001-0001-000000000001',
@@ -721,7 +784,8 @@
         customer_name: 'Akosua Mensah',
         rider_id: null,
         status: 'PENDING',
-        payment_status: 'UNPAID', // 'UNPAID' | 'PAID_PENDING_CONFIRMATION' | 'CONFIRMED'
+        payment_status: 'UNPAID', // 'UNPAID' | 'AWAITING_MOMO_PIN' | 'PAID_PENDING_CONFIRMATION' | 'CONFIRMED'
+        restaurant_preconfirmed: false,
         payment_method: null,
         payment_account: null,
         payment_reference: null,
@@ -834,7 +898,8 @@
       renderAll();
     }
 
-    function submitCustomerPayment(orderId) {
+    // Step 1: Customer clicks "Prompt for Payment" -> Opens the USSD MoMo PIN Prompt
+    function triggerMomoPinPrompt(orderId) {
       const ord = orders.find((o) => o.id === orderId);
       if (!ord) return;
       const acctEl = document.getElementById('pay-acct-input');
@@ -844,35 +909,101 @@
         return;
       }
       payAccountInput = acctVal;
-      const prefix = selectedPayMethod === 'BANK_CARD' ? 'CARD' : 'MOMO';
-      const ref = `TXN-${prefix}-${Math.floor(100000 + Math.random() * 900000)}`;
-
+      currentMomoPin = '';
       ord.payment_method = selectedPayMethod;
       ord.payment_account = acctVal;
-      ord.payment_reference = ref;
-      ord.payment_status = 'PAID_PENDING_CONFIRMATION';
+      ord.payment_status = 'AWAITING_MOMO_PIN';
 
-      // Notify Restaurant Dashboard with chime + banner
       playOrderChime();
       const banner = document.getElementById('rest-alarm-banner');
       document.getElementById('rest-alarm-text').textContent =
-        `💳 PAYMENT RECEIVED (${selectedPayMethod.replace('MOMO_', '')}) FOR #${ord.id.slice(0, 6).toUpperCase()} — PLEASE CONFIRM!`;
+        `📲 CUSTOMER PROMPTED PAYMENT FOR #${ord.id.slice(0, 6).toUpperCase()} — ENTERING MOMO PIN & READY FOR CONFIRMATION!`;
       banner.style.display = 'flex';
 
       logEvent(
-        `POST /api/orders/${ord.id.slice(0, 6)}/pay -> ${selectedPayMethod} (${acctVal}) Ref=${ref}`
+        `USSD Prompt sent to ${acctVal} (${selectedPayMethod}) — Waiting for 4-digit MoMo PIN & Restaurant Confirmation`
       );
       renderAll();
     }
 
+    function pressPinDigit(digit) {
+      if (digit === 'CLEAR') {
+        currentMomoPin = '';
+      } else if (digit === 'BACK') {
+        currentMomoPin = currentMomoPin.slice(0, -1);
+      } else if (currentMomoPin.length < 4) {
+        currentMomoPin += String(digit);
+      }
+      renderAll();
+    }
+
+    function onPinInputChange(val) {
+      currentMomoPin = String(val).replace(/\D/g, '').slice(0, 4);
+      renderAll();
+    }
+
+    // Step 2: Customer cues in their 4-digit MoMo PIN to authorize final payment transaction
+    function authorizeWithMomoPin(orderId) {
+      const ord = orders.find((o) => o.id === orderId);
+      if (!ord) return;
+      if (!/^\d{4}$/.test(currentMomoPin)) {
+        alert('Please cue in your 4-digit Mobile Money / Card PIN to complete the payment transaction.');
+        return;
+      }
+
+      const prefix = ord.payment_method === 'BANK_CARD' ? 'CARD' : 'MOMO';
+      const ref = `TXN-${prefix}-${Math.floor(100000 + Math.random() * 900000)}`;
+      ord.payment_reference = ref;
+
+      // If the restaurant already clicked Confirm Payment, complete immediately!
+      if (ord.restaurant_preconfirmed) {
+        ord.payment_status = 'CONFIRMED';
+        playOrderChime();
+        logEvent(
+          `✅ MoMo PIN (••••) verified + Restaurant confirmed -> Final Payment Transaction COMPLETE (Ref=${ref})`
+        );
+      } else {
+        ord.payment_status = 'PAID_PENDING_CONFIRMATION';
+        playOrderChime();
+        const banner = document.getElementById('rest-alarm-banner');
+        document.getElementById('rest-alarm-text').textContent =
+          `🔐 MOMO PIN AUTHORIZED BY CUSTOMER (#${ord.id.slice(0, 6).toUpperCase()}) — CLICK "CONFIRM PAYMENT" TO FINALIZE!`;
+        banner.style.display = 'flex';
+        logEvent(
+          `POST /api/orders/${ord.id.slice(0, 6)}/pay -> 4-digit MoMo PIN (••••) verified! Ref=${ref}. Awaiting Restaurant Confirmation.`
+        );
+      }
+      currentMomoPin = '';
+      renderAll();
+    }
+
+    function cancelPinPrompt(orderId) {
+      const ord = orders.find((o) => o.id === orderId);
+      if (!ord) return;
+      ord.payment_status = 'UNPAID';
+      currentMomoPin = '';
+      renderAll();
+    }
+
+    // Restaurant clicks "Confirm Payment"
     function confirmRestaurantPayment(orderId) {
       const ord = orders.find((o) => o.id === orderId);
       if (!ord) return;
-      ord.payment_status = 'CONFIRMED';
-      playOrderChime();
-      logEvent(
-        `PATCH /api/orders/${ord.id.slice(0, 6)}/confirm-payment -> payment_status='CONFIRMED' (Customer Notified)`
-      );
+
+      if (ord.payment_status === 'AWAITING_MOMO_PIN') {
+        // Restaurant confirmed while customer has the MoMo PIN prompt open
+        ord.restaurant_preconfirmed = true;
+        playOrderChime();
+        logEvent(
+          `Restaurant confirmed payment prompt for #${ord.id.slice(0, 6)} — waiting for customer to cue in 4-digit MoMo PIN`
+        );
+      } else {
+        ord.payment_status = 'CONFIRMED';
+        playOrderChime();
+        logEvent(
+          `PATCH /api/orders/${ord.id.slice(0, 6)}/confirm-payment -> payment_status='CONFIRMED' (Final Transaction Verified)`
+        );
+      }
       renderAll();
     }
 
@@ -923,15 +1054,16 @@
       const tracked = orders.find((o) => o.id === activeOrderId) || orders[0];
       if (tracked) {
         const payContainer = document.getElementById('customer-payment-container');
+        const isCard = (tracked.payment_method || selectedPayMethod) === 'BANK_CARD';
+
         if (tracked.payment_status === 'UNPAID') {
-          const isCard = selectedPayMethod === 'BANK_CARD';
           payContainer.innerHTML = `
             <div class="card" style="background:#fff7ed; border:2px solid #fb923c;">
               <div style="display:flex; justify-content:space-between; align-items:center;">
-                <strong style="font-size:14px; color:#9a3412;">💳 Make Payment for Order #${tracked.id.slice(0, 6).toUpperCase()}</strong>
+                <strong style="font-size:14px; color:#9a3412;">💳 Step 1: Select Payment Method (#${tracked.id.slice(0, 6).toUpperCase()})</strong>
                 <strong style="font-size:15px; color:var(--brand);">GH₵ ${tracked.total_amount.toFixed(2)}</strong>
               </div>
-              <div style="font-size:11px; color:#7c2d12; margin-top:2px;">Select Mobile Money or Bank Card below:</div>
+              <div style="font-size:11px; color:#7c2d12; margin-top:2px;">Choose Mobile Money or Bank Card to receive your PIN prompt:</div>
               <div class="pay-methods-grid">
                 ${PAYMENT_OPTIONS.map(
                   (p) => `
@@ -942,7 +1074,7 @@
                 ).join('')}
               </div>
               ${
-                isCard
+                selectedPayMethod === 'BANK_CARD'
                   ? `
                   <label style="font-size:11px; font-weight:700;">Card Number (Visa / Mastercard)</label>
                   <input id="pay-acct-input" class="input-field" value="${payAccountInput}" placeholder="4242 •••• •••• 4242" />
@@ -962,23 +1094,85 @@
                   <input id="pay-acct-input" class="input-field" value="${payAccountInput}" placeholder="024 123 4567" />
                 `
               }
-              <button class="btn-primary" style="background:#16a34a; margin-top:10px;" onclick="submitCustomerPayment('${tracked.id}')">
-                ${isCard ? `🔒 Pay GH₵ ${tracked.total_amount.toFixed(2)} with Bank Card` : `📲 Pay GH₵ ${tracked.total_amount.toFixed(2)} with Mobile Money`}
+              <button class="btn-primary" style="background:#0f172a; margin-top:10px;" onclick="triggerMomoPinPrompt('${tracked.id}')">
+                📲 Prompt for Payment Confirmation (Cue In MoMo PIN)
               </button>
+            </div>
+          `;
+        } else if (tracked.payment_status === 'AWAITING_MOMO_PIN') {
+          const boxes = [0, 1, 2, 3]
+            .map((i) => {
+              const filled = i < currentMomoPin.length;
+              return `<div class="pin-box ${filled ? 'filled' : ''}">${filled ? '•' : ''}</div>`;
+            })
+            .join('');
+
+          payContainer.innerHTML = `
+            <div class="ussd-modal">
+              <div class="ussd-header">
+                <div>
+                  <div style="font-size:13px; font-weight:800; color:#facc15;">
+                    📲 ${isCard ? 'BANK 3DS CARD PIN PROMPT' : 'MOBILE MONEY USSD PROMPT (*170#)'}
+                  </div>
+                  <div style="font-size:11px; color:#cbd5e1;">
+                    Merchant: <strong>${tracked.restaurant_name}</strong> • Acct: ${tracked.payment_account}
+                  </div>
+                </div>
+                <span class="badge" style="background:#eab308; color:#0f172a;">GH₵ ${tracked.total_amount.toFixed(2)}</span>
+              </div>
+
+              ${
+                tracked.restaurant_preconfirmed
+                  ? `<div style="background:#166534; color:#dcfce7; padding:6px 10px; border-radius:8px; font-size:11px; font-weight:700; margin-bottom:8px; text-align:center;">
+                      ✅ Restaurant has confirmed payment request! Cue in your 4-digit PIN below to finalize.
+                     </div>`
+                  : `<div style="font-size:11px; color:#94a3b8; text-align:center;">
+                      Cue in your <strong>4-digit ${isCard ? 'Card' : 'MoMo'} PIN</strong> for final payment transaction:
+                     </div>`
+              }
+
+              <div class="pin-dots">${boxes}</div>
+
+              <div style="margin-bottom:8px;">
+                <input
+                  type="password"
+                  maxlength="4"
+                  value="${currentMomoPin}"
+                  oninput="onPinInputChange(this.value)"
+                  placeholder="Type 4-digit MoMo PIN or tap keypad below"
+                  class="input-field"
+                  style="background:#1e293b; color:#fff; border-color:#475569; text-align:center; letter-spacing:4px; font-weight:700;"
+                />
+              </div>
+
+              <div class="pin-keypad">
+                ${[1, 2, 3, 4, 5, 6, 7, 8, 9, 0]
+                  .map((n) => `<button class="pin-key" onclick="pressPinDigit(${n})">${n}</button>`)
+                  .join('')}
+                <button class="pin-key" style="color:#f87171;" onclick="pressPinDigit('BACK')">⌫</button>
+                <button class="pin-key" style="color:#94a3b8; font-size:11px;" onclick="pressPinDigit('CLEAR')">CLR</button>
+              </div>
+
+              <div style="display:flex; gap:8px;">
+                <button class="btn-primary" style="background:#16a34a; flex:1;" onclick="authorizeWithMomoPin('${tracked.id}')">
+                  🔐 Confirm & Send Final Payment (${currentMomoPin.length}/4 PIN)
+                </button>
+                <button class="btn-danger" onclick="cancelPinPrompt('${tracked.id}')">Cancel</button>
+              </div>
             </div>
           `;
         } else if (tracked.payment_status === 'PAID_PENDING_CONFIRMATION') {
           payContainer.innerHTML = `
             <div class="card" style="background:#fef3c7; border:2px solid #f59e0b;">
               <div style="font-size:14px; font-weight:800; color:#92400e;">
-                ⏳ Payment Submitted — Awaiting Restaurant Confirmation
+                🔐 MoMo PIN Authorized — Waiting for Restaurant Confirmation
               </div>
               <div style="font-size:12px; color:#b45309; margin-top:4px;">
-                Method: <strong>${tracked.payment_method.replace('MOMO_', 'MoMo ')}</strong> (${tracked.payment_account})<br/>
+                Method: <strong>${tracked.payment_method.replace('MOMO_', 'MoMo ')}</strong> (${tracked.payment_account}) • PIN Verified: <strong>••••</strong><br/>
                 Transaction Ref: <strong>${tracked.payment_reference}</strong> • Amount: <strong>GH₵ ${tracked.total_amount.toFixed(2)}</strong>
               </div>
               <div style="font-size:11px; color:#78350f; margin-top:6px;">
-                👉 <em>Look at the Restaurant Dashboard panel and click <strong>"💳 Confirm Payment Received"</strong> to verify!</em>
+                👉 <em>In the Restaurant Dashboard panel, click <strong>"💳 Confirm Payment Received"</strong> to complete!</em>
               </div>
             </div>
           `;
@@ -987,9 +1181,9 @@
             <div class="card" style="background:#dcfce7; border:2px solid #22c55e;">
               <div style="display:flex; justify-content:space-between; align-items:center;">
                 <div style="font-size:14px; font-weight:800; color:#166534;">
-                  ✅ Payment Confirmed by ${tracked.restaurant_name}!
+                  ✅ Final Payment Confirmed by ${tracked.restaurant_name}!
                 </div>
-                <span class="badge" style="background:#16a34a;">PAID & VERIFIED</span>
+                <span class="badge" style="background:#16a34a;">PIN & RESTAURANT VERIFIED</span>
               </div>
               <div style="font-size:12px; color:#15803d; margin-top:4px;">
                 Receipt Ref: <strong>${tracked.payment_reference}</strong> • ${tracked.payment_method?.replace('MOMO_', 'MoMo ')} (${tracked.payment_account}) • <strong>GH₵ ${tracked.total_amount.toFixed(2)}</strong>
@@ -1012,7 +1206,7 @@
         ).join('');
       }
 
-      // 3. Restaurant Orders Feed (with Payment Verification Box)
+      // 3. Restaurant Orders Feed
       const restOrdersEl = document.getElementById('restaurant-orders-list');
       restOrdersEl.innerHTML = orders
         .map((o) => {
@@ -1030,14 +1224,31 @@
           if (o.payment_status === 'UNPAID') {
             payStatusHtml = `
               <div style="background:#fee2e2; border-radius:8px; padding:8px 10px; margin:8px 0; font-size:11px; color:#991b1b; font-weight:700;">
-                ⚠️ UNPAID — Waiting for customer Mobile Money / Bank Card payment
+                ⚠️ UNPAID — Waiting for customer to prompt Mobile Money / Bank Card payment
+              </div>
+            `;
+          } else if (o.payment_status === 'AWAITING_MOMO_PIN') {
+            payStatusHtml = `
+              <div style="background:#fef3c7; border:1px solid #f59e0b; border-radius:8px; padding:8px 10px; margin:8px 0; display:flex; justify-content:space-between; align-items:center; gap:8px;">
+                <div style="font-size:11px; color:#92400e;">
+                  <strong>📲 CUSTOMER PROMPTED PAYMENT (ENTERING MOMO PIN…)</strong><br/>
+                  ${o.payment_method?.replace('MOMO_', 'MoMo ')} (${o.payment_account})
+                  ${o.restaurant_preconfirmed ? '<br/><strong style="color:#166534;">✓ Pre-confirmed by Restaurant (Waiting for Customer PIN)</strong>' : ''}
+                </div>
+                ${
+                  !o.restaurant_preconfirmed
+                    ? `<button class="btn-success" onclick="confirmRestaurantPayment('${o.id}')">
+                        💳 Confirm Payment
+                       </button>`
+                    : ''
+                }
               </div>
             `;
           } else if (o.payment_status === 'PAID_PENDING_CONFIRMATION') {
             payStatusHtml = `
-              <div style="background:#fef3c7; border:1px solid #f59e0b; border-radius:8px; padding:8px 10px; margin:8px 0; display:flex; justify-content:space-between; align-items:center; gap:8px;">
-                <div style="font-size:11px; color:#92400e;">
-                  <strong>⏳ PAYMENT SENT BY CUSTOMER</strong><br/>
+              <div style="background:#fef3c7; border:2px solid #16a34a; border-radius:8px; padding:8px 10px; margin:8px 0; display:flex; justify-content:space-between; align-items:center; gap:8px;">
+                <div style="font-size:11px; color:#166534;">
+                  <strong>🔐 CUSTOMER CUED IN MOMO PIN (••••) — AUTHORIZED!</strong><br/>
                   ${o.payment_method?.replace('MOMO_', 'MoMo ')} (${o.payment_account}) • Ref: <strong>${o.payment_reference}</strong>
                 </div>
                 <button class="btn-success" onclick="confirmRestaurantPayment('${o.id}')">
@@ -1048,7 +1259,7 @@
           } else if (o.payment_status === 'CONFIRMED') {
             payStatusHtml = `
               <div style="background:#dcfce7; border:1px solid #22c55e; border-radius:8px; padding:8px 10px; margin:8px 0; font-size:11px; color:#166534; font-weight:700;">
-                ✅ PAYMENT CONFIRMED • ${o.payment_method?.replace('MOMO_', 'MoMo ')} (${o.payment_account}) • Ref: ${o.payment_reference}
+                ✅ FINAL PAYMENT CONFIRMED • ${o.payment_method?.replace('MOMO_', 'MoMo ')} (${o.payment_account}) • Ref: ${o.payment_reference}
               </div>
             `;
           }
@@ -1172,6 +1383,7 @@
         rider_id: null,
         status: 'PENDING',
         payment_status: 'UNPAID',
+        restaurant_preconfirmed: false,
         payment_method: null,
         payment_account: null,
         payment_reference: null,
@@ -1342,7 +1554,7 @@
       .catch(() => {});
 
     renderAll();
-    logEvent('Mobile Money & Bank Card Payment Engine + PostGIS initialized.');
+    logEvent('MoMo PIN USSD Engine + Restaurant Confirmation initialized.');
   </script>
 </body>
 </html>
