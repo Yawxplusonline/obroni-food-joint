@@ -42,7 +42,6 @@
       display: flex;
       flex-direction: column;
     }
-    /* Top Header Bar */
     header {
       background: var(--dark);
       color: #fff;
@@ -111,7 +110,6 @@
       box-shadow: 0 0 8px #22c55e;
     }
 
-    /* Main Grid */
     main {
       flex: 1;
       display: grid;
@@ -132,7 +130,6 @@
       }
     }
 
-    /* Actor Column */
     .actor-panel {
       background: var(--card);
       border-radius: 16px;
@@ -181,7 +178,6 @@
       gap: 14px;
     }
 
-    /* Sub-tabs inside panels */
     .subtabs {
       display: flex;
       border-bottom: 1px solid var(--border);
@@ -207,7 +203,6 @@
       background: #fff;
     }
 
-    /* Cards & Controls */
     .card {
       border: 1px solid var(--border);
       border-radius: 12px;
@@ -323,6 +318,16 @@
       font-weight: 700;
       cursor: pointer;
     }
+    .btn-success {
+      background: var(--green);
+      color: #fff;
+      border: none;
+      padding: 9px 14px;
+      border-radius: 8px;
+      font-size: 12px;
+      font-weight: 800;
+      cursor: pointer;
+    }
     .btn-danger {
       background: #fee2e2;
       color: var(--red);
@@ -334,16 +339,37 @@
       cursor: pointer;
     }
 
-    /* Map Container */
+    /* Payment Method Chips */
+    .pay-methods-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 6px;
+      margin: 8px 0;
+    }
+    .pay-chip {
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 2px solid var(--border);
+      background: #fff;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      text-align: left;
+    }
+    .pay-chip.selected {
+      border-color: var(--brand);
+      background: var(--brand-light);
+      color: var(--dark);
+    }
+
     #osm-map {
       width: 100%;
-      height: 250px;
+      height: 220px;
       border-radius: 12px;
       border: 1px solid var(--border);
       z-index: 1;
     }
 
-    /* Progress Steps */
     .progress-bar {
       display: flex;
       gap: 4px;
@@ -359,7 +385,6 @@
       background: var(--brand);
     }
 
-    /* Alert Banner */
     .alarm-banner {
       background: #ea580c;
       color: #fff;
@@ -421,7 +446,7 @@
       <div class="logo-badge">🍽️ OpenFood</div>
       <div>
         <div style="font-weight: 800; font-size: 15px;">Obroni Food Joint — Live Delivery Platform</div>
-        <div class="logo-sub">Real-Time Multi-Actor Ecosystem • PostGIS Spatial Dispatch • OpenStreetMap</div>
+        <div class="logo-sub">Mobile Money & Card Payments • Real-Time Restaurant Verification • PostGIS & OSM</div>
       </div>
     </div>
 
@@ -448,8 +473,8 @@
         <span class="panel-tag">Akosua Mensah</span>
       </div>
       <div class="subtabs">
-        <button class="subtab active" id="cust-tab-menu" onclick="switchCustomerTab('MENU')">1. Browse & Checkout</button>
-        <button class="subtab" id="cust-tab-track" onclick="switchCustomerTab('TRACK')">2. Live OSM Tracking 📍</button>
+        <button class="subtab active" id="cust-tab-menu" onclick="switchCustomerTab('MENU')">1. Browse & Order</button>
+        <button class="subtab" id="cust-tab-track" onclick="switchCustomerTab('TRACK')">2. Pay & Track 📍</button>
       </div>
 
       <!-- Customer Tab 1: Menu & Cart -->
@@ -484,14 +509,20 @@
           </div>
 
           <button class="btn-primary" style="margin-top: 12px;" onclick="placeOrder()">
-            🛒 Place Order & Start Live Tracking
+            🛒 Place Order → Proceed to Payment
           </button>
         </div>
       </div>
 
-      <!-- Customer Tab 2: Live OpenStreetMap Tracking -->
+      <!-- Customer Tab 2: Payment & Live OpenStreetMap Tracking -->
       <div class="panel-body" id="cust-view-track" style="display: none;">
+        <!-- Dynamic Payment Checkout / Confirmation Card -->
+        <div id="customer-payment-container"></div>
+
+        <!-- OpenStreetMap -->
         <div id="osm-map"></div>
+
+        <!-- Live Order Progress Card -->
         <div class="card">
           <div style="display:flex; justify-content:space-between; align-items:center;">
             <div>
@@ -518,7 +549,7 @@
         <button class="btn-dark" style="background: rgba(255,255,255,0.15);" onclick="playOrderChime()">🔔 Test Audio Alarm</button>
       </div>
       <div class="subtabs">
-        <button class="subtab active" id="rest-tab-orders" onclick="switchRestTab('ORDERS')">Live Orders Feed</button>
+        <button class="subtab active" id="rest-tab-orders" onclick="switchRestTab('ORDERS')">Live Orders & Payments</button>
         <button class="subtab" id="rest-tab-stock" onclick="switchRestTab('STOCK')">Menu Stock Manager</button>
       </div>
 
@@ -575,7 +606,7 @@
 
         <div style="margin-top: auto;">
           <div style="font-size: 11px; font-weight: 700; color: var(--muted); margin-bottom: 4px;">
-            REALTIME CDC & POSTGIS EVENT STREAM
+            REALTIME CDC, PAYMENT & POSTGIS EVENT STREAM
           </div>
           <div class="event-log" id="realtime-log"></div>
         </div>
@@ -584,9 +615,6 @@
   </main>
 
   <script>
-    // =========================================================================
-    // Seed Data & Shared Realtime State (Mirrors database/seeds/seed_data.sql)
-    // =========================================================================
     const RESTAURANTS = [
       {
         id: 'b1b2c3d4-0001-0001-0001-000000000001',
@@ -647,6 +675,13 @@
       },
     ];
 
+    const PAYMENT_OPTIONS = [
+      { key: 'MOMO_MTN',     label: '📱 MTN Mobile Money', defaultAcct: '024 123 4567' },
+      { key: 'MOMO_TELECEL', label: '📱 Telecel Cash',     defaultAcct: '020 987 6543' },
+      { key: 'MOMO_AT',      label: '📱 AT Money',         defaultAcct: '027 555 0199' },
+      { key: 'BANK_CARD',    label: '💳 Bank Card (Visa/MC)', defaultAcct: '4242 •••• •••• 4242' },
+    ];
+
     const STATUS_STEPS = [
       'PENDING',
       'ACCEPTED',
@@ -657,6 +692,11 @@
     ];
 
     let selectedRestaurantId = RESTAURANTS[0].id;
+    let selectedPayMethod = 'MOMO_MTN';
+    let payAccountInput = '024 123 4567';
+    let cardExpiryInput = '08/28';
+    let cardCvvInput = '492';
+
     let cart = {
       'c1b2c3d4-0001-0001-0001-000000000001': 1,
       'c1b2c3d4-0003-0003-0003-000000000003': 2,
@@ -681,6 +721,10 @@
         customer_name: 'Akosua Mensah',
         rider_id: null,
         status: 'PENDING',
+        payment_status: 'UNPAID', // 'UNPAID' | 'PAID_PENDING_CONFIRMATION' | 'CONFIRMED'
+        payment_method: null,
+        payment_account: null,
+        payment_reference: null,
         total_amount: 75.0,
         delivery_address: '22 Airport Residential Area, Accra',
         created_at: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -705,7 +749,6 @@
       box.innerHTML = `[${time}] ${msg}<br/>` + box.innerHTML;
     }
 
-    // Web Audio API Synthesized Chime (PRD Section 5.2)
     function playOrderChime() {
       try {
         const AudioCtx = window.AudioContext || window.webkitAudioContext;
@@ -737,7 +780,6 @@
       return Math.round(R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x)));
     }
 
-    // Initialize OpenStreetMap via Leaflet
     function initMap() {
       if (map) return;
       map = L.map('osm-map').setView([5.609, -0.181], 14);
@@ -785,7 +827,55 @@
       ]);
     }
 
-    // Render all 3 actor interfaces
+    function selectPayMethod(key) {
+      selectedPayMethod = key;
+      const opt = PAYMENT_OPTIONS.find((p) => p.key === key);
+      if (opt) payAccountInput = opt.defaultAcct;
+      renderAll();
+    }
+
+    function submitCustomerPayment(orderId) {
+      const ord = orders.find((o) => o.id === orderId);
+      if (!ord) return;
+      const acctEl = document.getElementById('pay-acct-input');
+      const acctVal = acctEl ? acctEl.value.trim() : payAccountInput;
+      if (!acctVal) {
+        alert('Please enter your Mobile Money number or Bank Card number.');
+        return;
+      }
+      payAccountInput = acctVal;
+      const prefix = selectedPayMethod === 'BANK_CARD' ? 'CARD' : 'MOMO';
+      const ref = `TXN-${prefix}-${Math.floor(100000 + Math.random() * 900000)}`;
+
+      ord.payment_method = selectedPayMethod;
+      ord.payment_account = acctVal;
+      ord.payment_reference = ref;
+      ord.payment_status = 'PAID_PENDING_CONFIRMATION';
+
+      // Notify Restaurant Dashboard with chime + banner
+      playOrderChime();
+      const banner = document.getElementById('rest-alarm-banner');
+      document.getElementById('rest-alarm-text').textContent =
+        `💳 PAYMENT RECEIVED (${selectedPayMethod.replace('MOMO_', '')}) FOR #${ord.id.slice(0, 6).toUpperCase()} — PLEASE CONFIRM!`;
+      banner.style.display = 'flex';
+
+      logEvent(
+        `POST /api/orders/${ord.id.slice(0, 6)}/pay -> ${selectedPayMethod} (${acctVal}) Ref=${ref}`
+      );
+      renderAll();
+    }
+
+    function confirmRestaurantPayment(orderId) {
+      const ord = orders.find((o) => o.id === orderId);
+      if (!ord) return;
+      ord.payment_status = 'CONFIRMED';
+      playOrderChime();
+      logEvent(
+        `PATCH /api/orders/${ord.id.slice(0, 6)}/confirm-payment -> payment_status='CONFIRMED' (Customer Notified)`
+      );
+      renderAll();
+    }
+
     function renderAll() {
       // 1. Customer Restaurants
       const restContainer = document.getElementById('restaurant-list');
@@ -829,9 +919,85 @@
       document.getElementById('cart-subtotal').textContent = `GH₵ ${subtotal.toFixed(2)}`;
       document.getElementById('cart-total').textContent = `GH₵ ${(subtotal + 10).toFixed(2)}`;
 
-      // Tracking View
+      // Tracking & Payment View
       const tracked = orders.find((o) => o.id === activeOrderId) || orders[0];
       if (tracked) {
+        const payContainer = document.getElementById('customer-payment-container');
+        if (tracked.payment_status === 'UNPAID') {
+          const isCard = selectedPayMethod === 'BANK_CARD';
+          payContainer.innerHTML = `
+            <div class="card" style="background:#fff7ed; border:2px solid #fb923c;">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <strong style="font-size:14px; color:#9a3412;">💳 Make Payment for Order #${tracked.id.slice(0, 6).toUpperCase()}</strong>
+                <strong style="font-size:15px; color:var(--brand);">GH₵ ${tracked.total_amount.toFixed(2)}</strong>
+              </div>
+              <div style="font-size:11px; color:#7c2d12; margin-top:2px;">Select Mobile Money or Bank Card below:</div>
+              <div class="pay-methods-grid">
+                ${PAYMENT_OPTIONS.map(
+                  (p) => `
+                  <button class="pay-chip ${selectedPayMethod === p.key ? 'selected' : ''}" onclick="selectPayMethod('${p.key}')">
+                    ${p.label}
+                  </button>
+                `
+                ).join('')}
+              </div>
+              ${
+                isCard
+                  ? `
+                  <label style="font-size:11px; font-weight:700;">Card Number (Visa / Mastercard)</label>
+                  <input id="pay-acct-input" class="input-field" value="${payAccountInput}" placeholder="4242 •••• •••• 4242" />
+                  <div style="display:flex; gap:8px; margin-top:6px;">
+                    <div style="flex:1;">
+                      <label style="font-size:11px; font-weight:700;">Expiry</label>
+                      <input class="input-field" value="${cardExpiryInput}" placeholder="MM/YY" />
+                    </div>
+                    <div style="flex:1;">
+                      <label style="font-size:11px; font-weight:700;">CVV</label>
+                      <input class="input-field" type="password" value="${cardCvvInput}" placeholder="123" />
+                    </div>
+                  </div>
+                `
+                  : `
+                  <label style="font-size:11px; font-weight:700;">Mobile Money Phone Number</label>
+                  <input id="pay-acct-input" class="input-field" value="${payAccountInput}" placeholder="024 123 4567" />
+                `
+              }
+              <button class="btn-primary" style="background:#16a34a; margin-top:10px;" onclick="submitCustomerPayment('${tracked.id}')">
+                ${isCard ? `🔒 Pay GH₵ ${tracked.total_amount.toFixed(2)} with Bank Card` : `📲 Pay GH₵ ${tracked.total_amount.toFixed(2)} with Mobile Money`}
+              </button>
+            </div>
+          `;
+        } else if (tracked.payment_status === 'PAID_PENDING_CONFIRMATION') {
+          payContainer.innerHTML = `
+            <div class="card" style="background:#fef3c7; border:2px solid #f59e0b;">
+              <div style="font-size:14px; font-weight:800; color:#92400e;">
+                ⏳ Payment Submitted — Awaiting Restaurant Confirmation
+              </div>
+              <div style="font-size:12px; color:#b45309; margin-top:4px;">
+                Method: <strong>${tracked.payment_method.replace('MOMO_', 'MoMo ')}</strong> (${tracked.payment_account})<br/>
+                Transaction Ref: <strong>${tracked.payment_reference}</strong> • Amount: <strong>GH₵ ${tracked.total_amount.toFixed(2)}</strong>
+              </div>
+              <div style="font-size:11px; color:#78350f; margin-top:6px;">
+                👉 <em>Look at the Restaurant Dashboard panel and click <strong>"💳 Confirm Payment Received"</strong> to verify!</em>
+              </div>
+            </div>
+          `;
+        } else if (tracked.payment_status === 'CONFIRMED') {
+          payContainer.innerHTML = `
+            <div class="card" style="background:#dcfce7; border:2px solid #22c55e;">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <div style="font-size:14px; font-weight:800; color:#166534;">
+                  ✅ Payment Confirmed by ${tracked.restaurant_name}!
+                </div>
+                <span class="badge" style="background:#16a34a;">PAID & VERIFIED</span>
+              </div>
+              <div style="font-size:12px; color:#15803d; margin-top:4px;">
+                Receipt Ref: <strong>${tracked.payment_reference}</strong> • ${tracked.payment_method?.replace('MOMO_', 'MoMo ')} (${tracked.payment_account}) • <strong>GH₵ ${tracked.total_amount.toFixed(2)}</strong>
+              </div>
+            </div>
+          `;
+        }
+
         const stepIdx = Math.max(0, STATUS_STEPS.indexOf(tracked.status));
         const emojis = ['📋', '✅', '👨‍🍳', '📦', '🛵', '🎉'];
         document.getElementById('track-emoji').textContent = emojis[stepIdx] || '📋';
@@ -846,7 +1012,7 @@
         ).join('');
       }
 
-      // 3. Restaurant Orders Feed
+      // 3. Restaurant Orders Feed (with Payment Verification Box)
       const restOrdersEl = document.getElementById('restaurant-orders-list');
       restOrdersEl.innerHTML = orders
         .map((o) => {
@@ -859,6 +1025,34 @@
           } else if (o.status === 'PREPARING') {
             nextBtn = `<button class="btn-dark" style="background:#7e22ce;" onclick="advanceOrder('${o.id}', 'READY_FOR_PICKUP')">Mark Ready 📦 (PostGIS Dispatch)</button>`;
           }
+
+          let payStatusHtml = '';
+          if (o.payment_status === 'UNPAID') {
+            payStatusHtml = `
+              <div style="background:#fee2e2; border-radius:8px; padding:8px 10px; margin:8px 0; font-size:11px; color:#991b1b; font-weight:700;">
+                ⚠️ UNPAID — Waiting for customer Mobile Money / Bank Card payment
+              </div>
+            `;
+          } else if (o.payment_status === 'PAID_PENDING_CONFIRMATION') {
+            payStatusHtml = `
+              <div style="background:#fef3c7; border:1px solid #f59e0b; border-radius:8px; padding:8px 10px; margin:8px 0; display:flex; justify-content:space-between; align-items:center; gap:8px;">
+                <div style="font-size:11px; color:#92400e;">
+                  <strong>⏳ PAYMENT SENT BY CUSTOMER</strong><br/>
+                  ${o.payment_method?.replace('MOMO_', 'MoMo ')} (${o.payment_account}) • Ref: <strong>${o.payment_reference}</strong>
+                </div>
+                <button class="btn-success" onclick="confirmRestaurantPayment('${o.id}')">
+                  💳 Confirm Payment Received
+                </button>
+              </div>
+            `;
+          } else if (o.payment_status === 'CONFIRMED') {
+            payStatusHtml = `
+              <div style="background:#dcfce7; border:1px solid #22c55e; border-radius:8px; padding:8px 10px; margin:8px 0; font-size:11px; color:#166534; font-weight:700;">
+                ✅ PAYMENT CONFIRMED • ${o.payment_method?.replace('MOMO_', 'MoMo ')} (${o.payment_account}) • Ref: ${o.payment_reference}
+              </div>
+            `;
+          }
+
           return `
           <div class="order-card">
             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
@@ -869,7 +1063,8 @@
             <div style="font-size:12px; color:var(--slate); margin-bottom:6px;">
               ${o.items.map((i) => `• ${i.qty}× ${i.name} (GH₵${i.price})`).join('<br/>')}
             </div>
-            <div style="font-size:11px; color:var(--muted); margin-bottom:6px;">📍 ${o.delivery_address}</div>
+            <div style="font-size:11px; color:var(--muted);">📍 ${o.delivery_address}</div>
+            ${payStatusHtml}
             ${o.rider_id ? `<div style="font-size:11px; color:#7e22ce; font-weight:700; margin-bottom:6px;">🛵 Dispatched Rider: Yaw Boateng (within 5km)</div>` : ''}
             <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px;">
               <strong style="font-size:14px;">Total: GH₵ ${o.total_amount.toFixed(2)}</strong>
@@ -976,6 +1171,10 @@
         customer_name: 'Akosua Mensah',
         rider_id: null,
         status: 'PENDING',
+        payment_status: 'UNPAID',
+        payment_method: null,
+        payment_account: null,
+        payment_reference: null,
         total_amount: subtotal + 10,
         delivery_address: document.getElementById('cust-address').value || 'Accra, Ghana',
         created_at: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -984,13 +1183,12 @@
       orders.unshift(newOrder);
       activeOrderId = newOrder.id;
 
-      // Trigger Supabase Realtime INSERT simulation -> Restaurant Audio Alarm!
       playOrderChime();
       const banner = document.getElementById('rest-alarm-banner');
-      document.getElementById('rest-alarm-text').textContent = `🔔 NEW ORDER #${newOrder.id.toUpperCase()} — GH₵ ${newOrder.total_amount.toFixed(2)}`;
+      document.getElementById('rest-alarm-text').textContent = `🔔 NEW ORDER #${newOrder.id.toUpperCase()} — GH₵ ${newOrder.total_amount.toFixed(2)} (Awaiting Payment)`;
       banner.style.display = 'flex';
 
-      logEvent(`INSERT INTO orders -> #${newOrder.id.toUpperCase()} (status=PENDING)`);
+      logEvent(`INSERT INTO orders -> #${newOrder.id.toUpperCase()} (status=PENDING, payment_status=UNPAID)`);
       switchCustomerTab('TRACK');
       renderAll();
     }
@@ -1001,7 +1199,6 @@
       ord.status = nextStatus;
       logEvent(`UPDATE orders SET status='${nextStatus}' WHERE id='${orderId.slice(0, 8)}'`);
 
-      // PRD Section 5.3: Auto-dispatch nearest rider within 5km on READY_FOR_PICKUP
       if (nextStatus === 'READY_FOR_PICKUP' && !ord.rider_id) {
         const rest = RESTAURANTS.find((r) => r.id === ord.restaurant_id) || RESTAURANTS[0];
         const dist = haversineMeters(riderState, rest);
@@ -1083,6 +1280,9 @@
       autoDriveTimer = setInterval(() => {
         tick++;
         if (ord) {
+          if (tick === 1 && ord.payment_status === 'PAID_PENDING_CONFIRMATION') {
+            confirmRestaurantPayment(ord.id);
+          }
           if (tick === 1 && ord.status === 'PENDING') advanceOrder(ord.id, 'ACCEPTED');
           if (tick === 2 && ord.status === 'ACCEPTED') advanceOrder(ord.id, 'PREPARING');
           if (tick === 3 && ord.status === 'PREPARING') advanceOrder(ord.id, 'READY_FOR_PICKUP');
@@ -1133,7 +1333,6 @@
       if (map) setTimeout(() => map.invalidateSize(), 150);
     }
 
-    // Verify backend /health on startup
     fetch('/health')
       .then((r) => r.json())
       .then((d) => {
@@ -1143,7 +1342,7 @@
       .catch(() => {});
 
     renderAll();
-    logEvent('PostGIS Spatial Engine & Supabase Realtime listener initialized.');
+    logEvent('Mobile Money & Bank Card Payment Engine + PostGIS initialized.');
   </script>
 </body>
 </html>

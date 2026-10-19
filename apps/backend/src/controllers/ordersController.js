@@ -429,4 +429,149 @@ async function acceptOrderDelivery(req, res, next) {
   }
 }
 
-module.exports = { listOrders, createOrder, updateOrderStatus, acceptOrderDelivery };
+// ---------------------------------------------------------------------------
+// POST /api/orders/:id/pay
+// ---------------------------------------------------------------------------
+const VALID_PAYMENT_METHODS = ['MOMO_MTN', 'MOMO_TELECEL', 'MOMO_AT', 'BANK_CARD'];
+
+/**
+ * submitOrderPayment
+ * Allows the customer to pay for a placed order via Mobile Money (MTN, Telecel, AT)
+ * or Bank Card (Visa/Mastercard), setting `payment_status = 'PAID_PENDING_CONFIRMATION'`.
+ *
+ * Expected body:
+ * {
+ *   "payment_method": "MOMO_MTN" | "MOMO_TELECEL" | "MOMO_AT" | "BANK_CARD",
+ *   "payment_account": "0241234567" or "**** 4242"
+ * }
+ */
+async function submitOrderPayment(req, res, next) {
+  try {
+    const { id } = req.params;
+    const { payment_method, payment_account } = req.body;
+    const customerId = req.user.id;
+
+    if (!payment_method || !VALID_PAYMENT_METHODS.includes(payment_method)) {
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: `payment_method must be one of: ${VALID_PAYMENT_METHODS.join(', ')}.`,
+      });
+    }
+
+    if (!payment_account || String(payment_account).trim().length < 4) {
+      return res.status(400).json({
+        error: 'Bad Request',
+        message: 'payment_account (MoMo phone number or masked card digits) is required.',
+      });
+    }
+
+    // Verify order belongs to the customer
+    const { data: order, error: fetchErr } = await supabaseAdmin
+      .from('orders')
+      .select('id, customer_id, status, payment_status')
+      .eq('id', id)
+      .single();
+
+    if (fetchErr || !order) {
+      return res.status(404).json({ error: 'Not Found', message: 'Order not found.' });
+    }
+
+    if (order.customer_id !== customerId) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'Only the customer who placed this order can submit payment.',
+      });
+    }
+
+    const prefix = payment_method === 'BANK_CARD' ? 'CARD' : 'MOMO';
+    const paymentReference = `TXN-${prefix}-${Math.floor(100000 + Math.random() * 900000)}`;
+
+    const { data: updatedOrder, error: updateErr } = await supabaseAdmin
+      .from('orders')
+      .update({
+        payment_method,
+        payment_account: String(payment_account).trim(),
+        payment_reference: paymentReference,
+        payment_status: 'PAID_PENDING_CONFIRMATION',
+        paid_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (updateErr) {
+      return next(Object.assign(new Error(updateErr.message), { statusCode: 400 }));
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Payment submitted. Waiting for restaurant confirmation.',
+      data: updatedOrder,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// PATCH /api/orders/:id/confirm-payment
+// ---------------------------------------------------------------------------
+/**
+ * confirmOrderPayment
+ * Allows the restaurant owner to confirm that a customer's Mobile Money or
+ * Bank Card payment has been received (`payment_status = 'CONFIRMED'`).
+ */
+async function confirmOrderPayment(req, res, next) {
+  try {
+    const { id } = req.params;
+    const callerId = req.user.id;
+
+    const { data: order, error: fetchErr } = await supabaseAdmin
+      .from('orders')
+      .select('id, status, payment_status, restaurant_id, restaurants ( owner_id )')
+      .eq('id', id)
+      .single();
+
+    if (fetchErr || !order) {
+      return res.status(404).json({ error: 'Not Found', message: 'Order not found.' });
+    }
+
+    if (order.restaurants?.owner_id !== callerId) {
+      return res.status(403).json({
+        error: 'Forbidden',
+        message: 'Only the restaurant owner can confirm payment for this order.',
+      });
+    }
+
+    const { data: updatedOrder, error: updateErr } = await supabaseAdmin
+      .from('orders')
+      .update({
+        payment_status: 'CONFIRMED',
+        payment_confirmed_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (updateErr) {
+      return next(Object.assign(new Error(updateErr.message), { statusCode: 400 }));
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Payment confirmed by restaurant.',
+      data: updatedOrder,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = {
+  listOrders,
+  createOrder,
+  updateOrderStatus,
+  acceptOrderDelivery,
+  submitOrderPayment,
+  confirmOrderPayment,
+};

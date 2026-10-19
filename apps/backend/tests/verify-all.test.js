@@ -90,6 +90,8 @@ test('OpenFood Backend API & Spatial Suite', async (t) => {
       ['POST', '/api/orders'],
       ['PATCH', '/api/orders/123/status'],
       ['POST', '/api/orders/123/accept'],
+      ['POST', '/api/orders/123/pay'],
+      ['PATCH', '/api/orders/123/confirm-payment'],
       ['GET', '/api/riders/nearby?lat=5.6037&lng=-0.1870'],
       ['PATCH', '/api/riders/123/location'],
       ['PATCH', '/api/riders/123/status'],
@@ -108,13 +110,14 @@ test('OpenFood Backend API & Spatial Suite', async (t) => {
     }
   });
 
-  await t.test('Database migrations 001–004 and seed_data.sql are complete', async () => {
+  await t.test('Database migrations 001–005 and seed_data.sql are complete', async () => {
     const dbRoot = path.resolve(__dirname, '../../../database');
     const expectedFiles = [
       'migrations/001_initial_schema.sql',
       'migrations/002_rls_policies.sql',
       'migrations/003_indexes.sql',
       'migrations/004_spatial_rpc_and_dispatch.sql',
+      'migrations/005_payments.sql',
       'seeds/seed_data.sql',
     ];
 

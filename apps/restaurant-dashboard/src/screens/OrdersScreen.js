@@ -1,11 +1,11 @@
 /**
  * OpenFood Restaurant Dashboard — OrdersScreen
  *
- * Implements PRD Sections 2, 5.2, 5.3 & 6:
+ * Implements PRD Sections 2, 5.2, 5.3 & 6 + Real-Time Payment Confirmation:
  *  - Live order feed via Supabase Realtime (`INSERT` & `UPDATE` on `orders`)
- *  - Instant audio chime (Web Audio API) + vibration + visual flash banner on new orders
+ *  - Instant audio chime (Web Audio API) + vibration + visual flash banner on new orders & payments
+ *  - Displays Customer Payment Status (Mobile Money / Bank Card) + 1-tap "Confirm Payment" button
  *  - Order stage workflow: PENDING → ACCEPTED → PREPARING → READY_FOR_PICKUP
- *  - Triggers PostGIS `dispatch_nearest_rider` RPC when marked READY_FOR_PICKUP
  *  - Menu Availability Manager tab (`MENU`) to toggle `menu_items.is_available` in real time
  */
 
@@ -26,7 +26,7 @@ import {
 } from 'react-native';
 import { supabase } from '../lib/supabase';
 
-const DEFAULT_RESTAURANT_ID = 'b1b2c3d4-0001-0001-0001-000000000001'; // Mama Akua Kitchen
+const DEFAULT_RESTAURANT_ID = 'b1b2c3d4-0001-0001-0001-000000000001';
 
 const STATUS_COLORS = {
   PENDING:          { bg: '#FFF7ED', border: '#F97316', text: '#C2410C' },
@@ -35,12 +35,12 @@ const STATUS_COLORS = {
   READY_FOR_PICKUP: { bg: '#FAF5FF', border: '#A855F7', text: '#7E22CE' },
   PICKED_UP:        { bg: '#F0F9FF', border: '#0EA5E9', text: '#0369A1' },
   DELIVERED:        { bg: '#F0FDF4', border: '#6EE7B7', text: '#065F46' },
-  CANCELLED:        { bg: '#FEF2E2', border: '#EF4444', text: '#B91C1C' },
+  CANCELLED:        { bg: '#FEF2F2', border: '#EF4444', text: '#B91C1C' },
 };
 
 const NEXT_ACTION = {
-  PENDING:   { label: 'Accept Order ✅',      nextStatus: 'ACCEPTED' },
-  ACCEPTED:  { label: 'Start Preparing 👨‍🍳', nextStatus: 'PREPARING' },
+  PENDING:   { label: 'Accept Order ✅',                    nextStatus: 'ACCEPTED' },
+  ACCEPTED:  { label: 'Start Preparing 👨‍🍳',               nextStatus: 'PREPARING' },
   PREPARING: { label: 'Mark as Ready 📦 (Dispatch Rider)', nextStatus: 'READY_FOR_PICKUP' },
   READY_FOR_PICKUP: null,
   PICKED_UP:        null,
@@ -48,11 +48,6 @@ const NEXT_ACTION = {
   CANCELLED:        null,
 };
 
-/**
- * Triggers an instant audio + haptic alarm when a new order arrives (PRD Section 5.2).
- * Uses Web Audio API on web/tablet browsers (zero external MP3 assets required)
- * and native Vibration pattern on iOS/Android.
- */
 function triggerNewOrderAlarm() {
   try {
     if (Platform.OS !== 'web') {
@@ -60,7 +55,7 @@ function triggerNewOrderAlarm() {
     } else if (typeof window !== 'undefined' && (window.AudioContext || window.webkitAudioContext)) {
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
       const ctx = new AudioCtx();
-      const notes = [587.33, 880.0, 1174.66]; // D5 -> A5 -> D6 chime
+      const notes = [587.33, 880.0, 1174.66];
       notes.forEach((freq, idx) => {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
@@ -79,9 +74,10 @@ function triggerNewOrderAlarm() {
   }
 }
 
-function OrderCard({ order, onAdvance, onCancel }) {
+function OrderCard({ order, onAdvance, onCancel, onConfirmPayment }) {
   const colors = STATUS_COLORS[order.status] || STATUS_COLORS.PENDING;
   const nextAction = NEXT_ACTION[order.status];
+  const paymentStatus = order.payment_status || 'UNPAID';
   const createdAt = new Date(order.created_at).toLocaleTimeString([], {
     hour: '2-digit',
     minute: '2-digit',
@@ -96,9 +92,7 @@ function OrderCard({ order, onAdvance, onCancel }) {
         </View>
       </View>
 
-      <Text style={styles.customerName}>
-        👤 {order.users?.full_name || 'Customer'}
-      </Text>
+      <Text style={styles.customerName}>👤 {order.users?.full_name || 'Customer'}</Text>
 
       {order.order_items?.map((item) => (
         <Text key={item.id} style={styles.itemLine}>
@@ -109,6 +103,43 @@ function OrderCard({ order, onAdvance, onCancel }) {
       <Text style={styles.deliveryAddress} numberOfLines={2}>
         📍 {order.delivery_address}
       </Text>
+
+      {/* Payment Status & Restaurant Confirmation Section */}
+      <View
+        style={[
+          styles.paymentSection,
+          paymentStatus === 'CONFIRMED'
+            ? styles.paymentConfirmedBox
+            : paymentStatus === 'PAID_PENDING_CONFIRMATION'
+            ? styles.paymentPendingBox
+            : styles.paymentUnpaidBox,
+        ]}
+      >
+        <View style={{ flex: 1 }}>
+          <Text style={styles.paymentLabel}>
+            {paymentStatus === 'CONFIRMED'
+              ? '✅ PAYMENT CONFIRMED'
+              : paymentStatus === 'PAID_PENDING_CONFIRMATION'
+              ? '⏳ CUSTOMER PAID — AWAITING CONFIRMATION'
+              : '⚠️ UNPAID (Waiting for Customer MoMo / Card)'}
+          </Text>
+          {order.payment_method && (
+            <Text style={styles.paymentMeta}>
+              Method: {order.payment_method.replace('MOMO_', 'MoMo ')} • Acct:{' '}
+              {order.payment_account || 'N/A'} • Ref: {order.payment_reference || 'N/A'}
+            </Text>
+          )}
+        </View>
+
+        {paymentStatus === 'PAID_PENDING_CONFIRMATION' && (
+          <TouchableOpacity
+            style={styles.confirmPaymentBtn}
+            onPress={() => onConfirmPayment(order)}
+          >
+            <Text style={styles.confirmPaymentBtnText}>💳 Confirm Payment</Text>
+          </TouchableOpacity>
+        )}
+      </View>
 
       {order.rider_id && (
         <Text style={styles.riderAssignedText}>
@@ -182,7 +213,7 @@ export default function OrdersScreen() {
   const [menuItems, setMenuItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [filter, setFilter] = useState('ACTIVE'); // 'ACTIVE' | 'ALL' | 'MENU'
+  const [filter, setFilter] = useState('ACTIVE');
   const [newOrderBanner, setNewOrderBanner] = useState(null);
   const channelRef = useRef(null);
 
@@ -195,6 +226,10 @@ export default function OrdersScreen() {
           status,
           total_amount,
           delivery_address,
+          payment_method,
+          payment_status,
+          payment_reference,
+          payment_account,
           created_at,
           updated_at,
           customer_id,
@@ -247,7 +282,6 @@ export default function OrdersScreen() {
     fetchMenuItems();
   }, [fetchOrders, fetchMenuItems]);
 
-  // Supabase Realtime subscription for new & updated orders
   useEffect(() => {
     channelRef.current = supabase
       .channel('restaurant-orders-feed')
@@ -268,6 +302,14 @@ export default function OrdersScreen() {
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'orders' },
         (payload) => {
+          if (payload.new?.payment_status === 'PAID_PENDING_CONFIRMATION') {
+            triggerNewOrderAlarm();
+            setNewOrderBanner(
+              `💳 Payment Submitted for Order #${payload.new.id
+                .slice(0, 8)
+                .toUpperCase()} — Please Confirm!`
+            );
+          }
           setOrders((prev) =>
             prev.map((o) => (o.id === payload.new.id ? { ...o, ...payload.new } : o))
           );
@@ -282,7 +324,27 @@ export default function OrdersScreen() {
     };
   }, [fetchOrders]);
 
-  // Advance order status & auto-dispatch nearest rider on READY_FOR_PICKUP (PRD Section 5.3)
+  // Confirm Customer Payment (Mobile Money / Bank Card)
+  const handleConfirmPayment = useCallback(async (order) => {
+    try {
+      const { error } = await supabase
+        .from('orders')
+        .update({
+          payment_status: 'CONFIRMED',
+          payment_confirmed_at: new Date().toISOString(),
+        })
+        .eq('id', order.id);
+
+      if (error) throw new Error(error.message);
+
+      setOrders((prev) =>
+        prev.map((o) => (o.id === order.id ? { ...o, payment_status: 'CONFIRMED' } : o))
+      );
+    } catch (err) {
+      Alert.alert('Payment Confirmation Error', err.message);
+    }
+  }, []);
+
   const handleAdvance = useCallback(async (order, nextStatus) => {
     try {
       const { data: updated, error } = await supabase
@@ -296,7 +358,6 @@ export default function OrdersScreen() {
 
       let assignedRiderId = updated?.rider_id || order.rider_id;
 
-      // If marked READY_FOR_PICKUP and no rider was assigned by trigger yet, invoke RPC
       if (nextStatus === 'READY_FOR_PICKUP' && !assignedRiderId) {
         const { data: rpcData } = await supabase.rpc('dispatch_nearest_rider', {
           p_order_id: order.id,
@@ -377,7 +438,6 @@ export default function OrdersScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Instant Audio/Visual Alert Banner on New Order */}
       {newOrderBanner && (
         <TouchableOpacity
           style={styles.alertBanner}
@@ -389,7 +449,6 @@ export default function OrdersScreen() {
         </TouchableOpacity>
       )}
 
-      {/* Filter & Menu Management Tabs */}
       <View style={styles.filterTabs}>
         <TouchableOpacity
           style={[styles.filterTab, filter === 'ACTIVE' && styles.filterTabActive]}
@@ -434,11 +493,6 @@ export default function OrdersScreen() {
               Toggle Item Availability (Updates Customer App in Real Time)
             </Text>
           }
-          ListEmptyComponent={
-            <View style={styles.centered}>
-              <Text style={styles.emptyText}>No menu items found.</Text>
-            </View>
-          }
           contentContainerStyle={styles.listContent}
         />
       ) : (
@@ -446,7 +500,12 @@ export default function OrdersScreen() {
           data={orders}
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => (
-            <OrderCard order={item} onAdvance={handleAdvance} onCancel={handleCancel} />
+            <OrderCard
+              order={item}
+              onAdvance={handleAdvance}
+              onCancel={handleCancel}
+              onConfirmPayment={handleConfirmPayment}
+            />
           )}
           ListEmptyComponent={
             <View style={styles.centered}>
@@ -472,15 +531,14 @@ export default function OrdersScreen() {
         />
       )}
 
-      {/* Live Footer + Test Chime Trigger */}
       <View style={styles.liveIndicator}>
         <View style={styles.liveDot} />
-        <Text style={styles.liveText}>Live — Supabase Realtime + Audio Alarm Ready</Text>
+        <Text style={styles.liveText}>Live — Supabase Realtime + Payment Verification</Text>
         <TouchableOpacity
           style={styles.testSoundBtn}
           onPress={() => {
             triggerNewOrderAlarm();
-            setNewOrderBanner('🔔 Test Audio Alarm — Ready for incoming orders!');
+            setNewOrderBanner('🔔 Test Audio Alarm — Ready for incoming orders & payments!');
           }}
         >
           <Text style={styles.testSoundText}>🔔 Test Alarm</Text>
@@ -586,10 +644,6 @@ const styles = StyleSheet.create({
     padding: 16,
     marginBottom: 14,
     elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
   },
   cardHeader: {
     flexDirection: 'row',
@@ -601,7 +655,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '800',
     color: '#1A1A2E',
-    letterSpacing: 0.5,
   },
   statusBadge: {
     borderRadius: 20,
@@ -613,7 +666,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
   },
   customerName: {
     fontSize: 14,
@@ -631,7 +683,50 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#9CA3AF',
     marginTop: 6,
-    marginBottom: 6,
+    marginBottom: 8,
+  },
+  paymentSection: {
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  paymentUnpaidBox: {
+    backgroundColor: '#FEE2E2',
+  },
+  paymentPendingBox: {
+    backgroundColor: '#FEF3C7',
+    borderWidth: 1,
+    borderColor: '#F59E0B',
+  },
+  paymentConfirmedBox: {
+    backgroundColor: '#DCFCE7',
+    borderWidth: 1,
+    borderColor: '#22C55E',
+  },
+  paymentLabel: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#1F2937',
+  },
+  paymentMeta: {
+    fontSize: 11,
+    color: '#4B5563',
+    marginTop: 2,
+  },
+  confirmPaymentBtn: {
+    backgroundColor: '#16A34A',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  confirmPaymentBtnText: {
+    color: '#FFF',
+    fontSize: 12,
+    fontWeight: '800',
   },
   riderAssignedText: {
     fontSize: 12,
